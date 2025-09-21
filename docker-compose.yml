@@ -1,0 +1,90 @@
+version: "3.8"
+
+volumes:
+  mysql_data: {}
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: proyecto_mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-proyecto_db}
+      MYSQL_USER: ${MYSQL_USER:-proyecto_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-proyecto_pass}
+    ports:
+      - "${MYSQL_PORT:-3307}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database:/docker-entrypoint-initdb.d
+
+  app-hija-1:
+    build: ./apps/app-hija-1
+    container_name: proyecto_app1
+    restart: always
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: ${MYSQL_USER:-proyecto_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-proyecto_pass}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-proyecto_db}
+      SECRET_KEY: ${SECRET_KEY:-miclave_secreta}
+      ALGORITHM: ${ALGORITHM:-HS256}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-120}
+    depends_on:
+      - mysql
+    ports:
+      - "${APP1_PORT:-8000}:8000"
+
+  app-hija-2:
+    build: ./apps/app-hija-2
+    container_name: proyecto_app2
+    restart: always
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: ${MYSQL_USER:-proyecto_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-proyecto_pass}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-proyecto_db}
+      SECRET_KEY: ${SECRET_KEY:-miclave_secreta}
+      ALGORITHM: ${ALGORITHM:-HS256}
+      APP2_PORT: ${APP2_PORT:-3002}
+    depends_on:
+      - mysql
+    ports:
+      - "${APP2_PORT:-3002}:3002"
+
+  portal:
+    build: ./portal
+    container_name: portal
+    restart: always
+    depends_on:
+      - app-hija-1
+      - app-hija-2
+
+  authz-service:
+    build: ./authz-service
+    container_name: authz_service
+    restart: always
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: ${MYSQL_USER:-proyecto_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-proyecto_pass}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-proyecto_db}
+    depends_on:
+      - mysql
+
+  nginx:
+    build: ./nginx
+    container_name: proyecto_nginx
+    restart: always
+    ports:
+      - "${NGINX_PORT:-8080}:8080"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - app-hija-1
+      - app-hija-2
+

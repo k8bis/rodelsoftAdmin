@@ -1,0 +1,49 @@
+<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36" version="28.1.2">
+  <diagram name="Página-1" id="wLJlXUGlUDABbFe1tc14">
+    <mxGraphModel dx="1426" dy="884" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="zZGUItEZ5OoQEbY6wXUb-3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="zZGUItEZ5OoQEbY6wXUb-1" target="zZGUItEZ5OoQEbY6wXUb-2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="zZGUItEZ5OoQEbY6wXUb-1" value="INICIO" style="ellipse;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="90" y="40" width="120" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="zZGUItEZ5OoQEbY6wXUb-5" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="zZGUItEZ5OoQEbY6wXUb-2" target="zZGUItEZ5OoQEbY6wXUb-4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="zZGUItEZ5OoQEbY6wXUb-2" value="usuario autenticacion correcta en login" style="whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="160" width="220" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="zZGUItEZ5OoQEbY6wXUb-7" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="zZGUItEZ5OoQEbY6wXUb-4" target="zZGUItEZ5OoQEbY6wXUb-6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="zZGUItEZ5OoQEbY6wXUb-4" value="se valida a que aplicaciones se tiene permiso por usuario y se muestran&amp;nbsp;" style="whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="240" width="220" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="zZGUItEZ5OoQEbY6wXUb-9" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="zZGUItEZ5OoQEbY6wXUb-6" target="zZGUItEZ5OoQEbY6wXUb-8">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="zZGUItEZ5OoQEbY6wXUb-6" value="en cada una de las aplicaciones se muestra una lista desplegable con los diferentes clientes que puede ver el usuario y que tienen esa aplicacion en su cartera de apps por cliente" style="whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="320" width="220" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="zZGUItEZ5OoQEbY6wXUb-11" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="zZGUItEZ5OoQEbY6wXUb-8" target="zZGUItEZ5OoQEbY6wXUb-10">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="zZGUItEZ5OoQEbY6wXUb-8" value="se selecciona el cliente con el que se va a trabajar y se da click en el boton entrar" style="whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="440" width="220" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="zZGUItEZ5OoQEbY6wXUb-13" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="zZGUItEZ5OoQEbY6wXUb-10" target="zZGUItEZ5OoQEbY6wXUb-12">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="zZGUItEZ5OoQEbY6wXUb-10" value="al entrar a la app seleccionada se debe dar un mensaje con el usuario, la aplicaion y el cliente para confirmar la entrada conrrecta" style="whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="520" width="220" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="zZGUItEZ5OoQEbY6wXUb-12" value="FIN" style="ellipse;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="110" y="640" width="80" height="80" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
