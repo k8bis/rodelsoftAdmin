@@ -101,7 +101,7 @@ def login(data: Login, response: Response, db: Session = Depends(get_db)):
         path="/"
     )
 
-    return {"status": "ok"}
+    return {"status": "ok", "access_token": token, "token_type": "bearer"}
 
 
 @app.get("/permissions")
@@ -157,8 +157,36 @@ def logout(response: Response):
     return {"status": "bye"}
 
 @app.get("/me")
-def get_me(x_client_name: str = Header(None)):
-    return {"cliente_seleccionado": x_client_name}
+def get_me(
+    user: str = Depends(verify_token),
+    x_app_id: int | None = Header(alias="X-App-Id", default=None),
+    x_client_id: int | None = Header(alias="X-Client-Id", default=None),
+):
+    return {"user": user, "app_id": x_app_id, "client_id": x_client_id}
+
+@app.get("/my/apps")
+def my_apps(user: str = Depends(verify_token), db: Session = Depends(get_db)):
+    q = text("""
+        SELECT a.id AS app_id, a.name AS app, c.id AS client_id, c.name AS client
+        FROM permissions p
+        JOIN applications a ON p.app_id = a.id
+        JOIN clients      c ON p.client_id = c.id
+        JOIN users        u ON p.user_id = u.id
+        WHERE u.username = :username
+        ORDER BY a.name, c.name
+    """)
+    rows = db.execute(q, {"username": user}).fetchall()
+    grouped = {}
+    for app_id, app, client_id, client in rows:
+        if app_id not in grouped:
+            grouped[app_id] = {"app_id": app_id, "app": app, "clients": []}
+        grouped[app_id]["clients"].append({"id": client_id, "name": client})
+    return list(grouped.values())
+
+@app.get("/apps")
+def apps_catalog(db: Session = Depends(get_db)):
+    rows = db.execute(text("SELECT id, name, description FROM applications ORDER BY name")).fetchall()
+    return [{"id": r[0], "name": r[1], "description": r[2]} for r in rows]
 
 @app.get("/entry")
 def entry(
@@ -180,4 +208,5 @@ def entry(
     ok = db.execute(q, {"username": user, "app_id": x_app_id, "client_id": x_client_id}).fetchone()
     if not ok:
         raise HTTPException(status_code=403, detail="Sin permiso para esa app/cliente")
-    return {"status":"ok", "user": user, "app_id": x_app_id, "client_id": x_client_id}
+    
+    return {"ok": True, "user": user, "app_id": x_app_id, "client_id": x_client_id, "note": "App1 /entry OK"}
