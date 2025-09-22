@@ -60,7 +60,8 @@ app.get("/entry", verifyToken, async (req, res) => {
   const username = req.username;
   const appId = Number(req.header("x-app-id"));
   const clientId = Number(req.header("x-client-id"));
-  if (!appId || !clientId) return res.status(400).json({ error: "Faltan X-App-Id o X-Client-Id" });
+  if (!appId || !clientId) 
+    return res.status(400).json({ error: "Faltan X-App-Id o X-Client-Id" });
   try {
     const [rows] = await pool.query(`
       SELECT 1
@@ -70,7 +71,14 @@ app.get("/entry", verifyToken, async (req, res) => {
       LIMIT 1
     `, [username, appId, clientId]);
     if (!rows.length) return res.status(403).json({ error: "Sin permiso" });
-    res.json({ status: "ok", user: username, app_id: appId, client_id: clientId });
+
+    return res.json({
+      ok: true,
+      user: req.username,
+      app_id: appId,
+      client_id: clientId,
+      note: "App2 /entry OK",
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
