@@ -1,0 +1,3 @@
+-- 00-init.sql
+-- Bootstrap reservado para futuras inicializaciones.
+-- La base de datos `proyecto_db` se crea automáticamente por MYSQL_DATABASE en docker-compose.

@@ -167,20 +167,44 @@ def get_me(
 @app.get("/my/apps")
 def my_apps(user: str = Depends(verify_token), db: Session = Depends(get_db)):
     q = text("""
-        SELECT a.id AS app_id, a.name AS app, c.id AS client_id, c.name AS client
+        SELECT
+            a.id AS app_id,
+            a.name AS app,
+            a.slug AS slug,
+            a.description AS description,
+            a.upstream AS base_url,
+            a.entry_path AS entry_path,
+            c.id AS client_id,
+            c.name AS client
         FROM permissions p
         JOIN applications a ON p.app_id = a.id
-        JOIN clients      c ON p.client_id = c.id
-        JOIN users        u ON p.user_id = u.id
+        JOIN clients c ON p.client_id = c.id
+        JOIN users u ON p.user_id = u.id
         WHERE u.username = :username
         ORDER BY a.name, c.name
     """)
+
     rows = db.execute(q, {"username": user}).fetchall()
+
     grouped = {}
-    for app_id, app, client_id, client in rows:
+    for app_id, app, slug, description, base_url, entry_path, client_id, client in rows:
         if app_id not in grouped:
-            grouped[app_id] = {"app_id": app_id, "app": app, "clients": []}
-        grouped[app_id]["clients"].append({"id": client_id, "name": client})
+            grouped[app_id] = {
+                "app_id": app_id,
+                "app": app,
+                "slug": slug,
+                "description": description,
+                "base_url": base_url,
+                "entry_path": entry_path or "/",
+                "launch_mode": "proxy",
+                "clients": [],
+            }
+
+        grouped[app_id]["clients"].append({
+            "id": client_id,
+            "name": client
+        })
+
     return list(grouped.values())
 
 @app.get("/apps")
