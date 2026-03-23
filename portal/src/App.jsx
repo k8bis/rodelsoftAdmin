@@ -7,11 +7,13 @@ import React, { useEffect, useMemo, useState } from "react";
 const APP_ROUTE = {
   "Rodel-RealState": "/app1/",
   "Rodel-Garage": "/app2/",
+  "Rodel-POS": "/pos/",
 };
 
 const APP_ROUTE_BY_ID = {
   1: "/app1/", // Rodel-RealState
   2: "/app2/", // Rodel-Garage
+  3: "/pos/", // Rodel-POS
 };
 
 

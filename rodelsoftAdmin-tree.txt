@@ -1,0 +1,49 @@
+rodolfo@RodelSoft-lnx01:~/Rodel/rodelsoftAdmin$ tree -L 3
+.
+├── apps
+│   ├── app-hija-1
+│   │   ├── db.py
+│   │   ├── Dockerfile
+│   │   ├── main.py
+│   │   └── requirements.txt
+│   ├── app-hija-2
+│   │   ├── db.js
+│   │   ├── Dockerfile
+│   │   ├── index.js
+│   │   ├── node_modules
+│   │   ├── package.json
+│   │   └── package-lock.json
+│   └── rodelsoft-pos
+│       ├── db.py
+│       ├── Dockerfile
+│       ├── main.py
+│       └── requirements.txt
+├── authz-service
+│   ├── db.py
+│   ├── Dockerfile
+│   ├── main.py
+│   └── requirements.txt
+├── cookies.txt
+├── database
+│   ├── init.sql
+│   ├── schema.sql
+│   └── seed.sql
+├── docker-compose.yml
+├── nginx
+│   ├── Dockerfile
+│   └── nginx.conf
+├── portal
+│   ├── Dockerfile
+│   ├── index.html
+│   ├── package.json
+│   ├── src
+│   │   ├── App.jsx
+│   │   └── main.jsx
+│   └── vite.config.js
+├── README.md
+└── test
+    ├── Diagrama sin título.drawio
+    └── test_e2e.py
+
+12 directories, 33 files
+
