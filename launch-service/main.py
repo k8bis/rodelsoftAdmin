@@ -91,7 +91,7 @@ def launch(
         # 3) Obtener datos de la app
         app_row = conn.execute(
             text("""
-                SELECT id, name, slug, upstream, entry_path
+                SELECT id, name, slug, internal_url, public_url, entry_path, launch_mode
                 FROM applications
                 WHERE id = :app_id
                 LIMIT 1
@@ -105,14 +105,14 @@ def launch(
             status_code=302
         )
 
-    _, app_name, slug, upstream, entry_path = app_row
+    _, app_name, slug, internal_url, public_url, entry_path, launch_mode = app_row
 
     entry_path = entry_path or "/"
     if not entry_path.startswith("/"):
         entry_path = "/" + entry_path
 
-    # 4) Health check
-    health_url = upstream.rstrip("/") + "/health"
+    # 4) Health check contra URL interna
+    health_url = internal_url.rstrip("/") + "/health"
     try:
         r = requests.get(health_url, timeout=2)
         if r.status_code != 200:
@@ -126,15 +126,6 @@ def launch(
             status_code=302
         )
 
-    # 5) Traducir URL interna Docker -> URL pública del navegador (FASE 2 temporal)
-    public_url = upstream.rstrip("/")
-
-    if "app-hija-1:8000" in public_url:
-        public_url = "http://localhost:8000"
-    elif "app-hija-2:3002" in public_url:
-        public_url = "http://localhost:3002"
-    elif "rodelsoft-pos:8000" in public_url:
-        public_url = "http://localhost:8001"
-
-    final_url = f"{public_url}{entry_path}?app_id={app_id}&client_id={client_id}"
+    # 5) Redirigir usando URL pública
+    final_url = f"{public_url.rstrip('/')}{entry_path}?app_id={app_id}&client_id={client_id}"
     return RedirectResponse(url=final_url, status_code=302)

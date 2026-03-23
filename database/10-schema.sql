@@ -1,7 +1,6 @@
 -- =====================================================================
--- RodelSoft Admin - INIT (MySQL 8, InnoDB, utf8mb4)
--- Esquema completo con catálogo de aplicaciones (slug/upstream) y
--- permisos con rol por (user_id, client_id, app_id)
+-- RodelSoft Admin - SCHEMA (FASE 3)
+-- Modelo profesional de catálogo de aplicaciones
 -- =====================================================================
 
 SET NAMES utf8mb4;
@@ -29,18 +28,17 @@ CREATE TABLE IF NOT EXISTS clients (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =========================
--- APLICACIONES (catálogo)
---  - slug: identificador legible y único (deep-link)
---  - upstream: destino al que Nginx debe enrutar
---  - entry_path: ruta base dentro del servicio (normalmente '/')
+-- APLICACIONES (catálogo profesional)
 -- =========================
 CREATE TABLE IF NOT EXISTS applications (
   id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(120) NOT NULL,
   slug VARCHAR(120) NOT NULL,
   description TEXT,
-  upstream VARCHAR(255) NOT NULL DEFAULT 'http://app-hija-1:8000',
+  internal_url VARCHAR(255) NOT NULL,
+  public_url VARCHAR(255) NOT NULL,
   entry_path VARCHAR(120) NOT NULL DEFAULT '/',
+  launch_mode ENUM('redirect','proxy') NOT NULL DEFAULT 'redirect',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uniq_app_name (name),
@@ -49,8 +47,6 @@ CREATE TABLE IF NOT EXISTS applications (
 
 -- =========================
 -- PERMISOS
---  - relación N:M con alcance (usuario + cliente + app)
---  - role: control de administración por tenencia (app+cliente)
 -- =========================
 CREATE TABLE IF NOT EXISTS permissions (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -59,9 +55,9 @@ CREATE TABLE IF NOT EXISTS permissions (
   app_id INT NOT NULL,
   role ENUM('app_client_admin','member') NOT NULL DEFAULT 'member',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT fk_permissions_user    FOREIGN KEY (user_id)  REFERENCES users(id)        ON DELETE CASCADE,
-  CONSTRAINT fk_permissions_client  FOREIGN KEY (client_id) REFERENCES clients(id)      ON DELETE CASCADE,
-  CONSTRAINT fk_permissions_app     FOREIGN KEY (app_id)   REFERENCES applications(id)  ON DELETE CASCADE,
+  CONSTRAINT fk_permissions_user    FOREIGN KEY (user_id) REFERENCES users(id)       ON DELETE CASCADE,
+  CONSTRAINT fk_permissions_client  FOREIGN KEY (client_id) REFERENCES clients(id)    ON DELETE CASCADE,
+  CONSTRAINT fk_permissions_app     FOREIGN KEY (app_id) REFERENCES applications(id)  ON DELETE CASCADE,
   UNIQUE KEY uniq_user_client_app (user_id, client_id, app_id),
   KEY idx_permissions_user (user_id),
   KEY idx_permissions_client (client_id),
@@ -70,7 +66,7 @@ CREATE TABLE IF NOT EXISTS permissions (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =========================
--- ADMINS GLOBALES (opcional)
+-- ADMINS GLOBALES
 -- =========================
 CREATE TABLE IF NOT EXISTS system_admins (
   user_id INT PRIMARY KEY,
@@ -90,8 +86,10 @@ SELECT
   a.id           AS app_id,
   a.name         AS app,
   a.slug         AS app_slug,
-  a.upstream     AS upstream,
+  a.internal_url AS internal_url,
+  a.public_url   AS public_url,
   a.entry_path   AS entry_path,
+  a.launch_mode  AS launch_mode,
   p.role         AS role,
   p.created_at   AS granted_at
 FROM permissions p

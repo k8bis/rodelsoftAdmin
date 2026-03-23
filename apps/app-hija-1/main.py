@@ -213,8 +213,9 @@ def my_apps(user: str = Depends(verify_token), db: Session = Depends(get_db)):
             a.name AS app,
             a.slug AS slug,
             a.description AS description,
-            a.upstream AS base_url,
+            a.public_url AS public_url,
             a.entry_path AS entry_path,
+            a.launch_mode AS launch_mode,
             c.id AS client_id,
             c.name AS client
         FROM permissions p
@@ -228,16 +229,16 @@ def my_apps(user: str = Depends(verify_token), db: Session = Depends(get_db)):
     rows = db.execute(q, {"username": user}).fetchall()
 
     grouped = {}
-    for app_id, app, slug, description, base_url, entry_path, client_id, client in rows:
+    for app_id, app, slug, description, public_url, entry_path, launch_mode, client_id, client in rows:
         if app_id not in grouped:
             grouped[app_id] = {
                 "app_id": app_id,
                 "app": app,
                 "slug": slug,
                 "description": description,
-                "base_url": base_url,
+                "public_url": public_url,
                 "entry_path": entry_path or "/",
-                "launch_mode": "proxy",
+                "launch_mode": launch_mode or "redirect",
                 "clients": [],
             }
 
