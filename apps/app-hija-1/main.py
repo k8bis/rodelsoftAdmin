@@ -67,8 +67,49 @@ class Login(BaseModel):
     password: str
 
 @app.get("/")
-def root():
-    return {"message": "App Hija 1 funcionando!"}
+def root(
+    request: Request,
+    user: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+    x_app_id: int | None = Header(alias="X-App-Id", default=None),
+    x_client_id: int | None = Header(alias="X-Client-Id", default=None),
+):
+    app_id = x_app_id
+    client_id = x_client_id
+
+    # fallback: query params si entran directo
+    if app_id is None:
+        q = request.query_params.get("app_id")
+        if q and q.isdigit():
+            app_id = int(q)
+
+    if client_id is None:
+        q = request.query_params.get("client_id")
+        if q and q.isdigit():
+            client_id = int(q)
+
+    if not app_id or not client_id:
+        raise HTTPException(status_code=400, detail="Faltan app_id o client_id")
+
+    q = text("""
+      SELECT 1
+      FROM permissions p
+      JOIN users u ON u.id = p.user_id
+      WHERE u.username = :username AND p.app_id = :app_id AND p.client_id = :client_id
+      LIMIT 1
+    """)
+    ok = db.execute(q, {"username": user, "app_id": app_id, "client_id": client_id}).fetchone()
+
+    if not ok:
+        raise HTTPException(status_code=403, detail="Sin permiso para esa app/cliente")
+
+    return {
+        "message": "App Hija 1 funcionando!",
+        "user": user,
+        "app_id": app_id,
+        "client_id": client_id,
+        "secured": True
+    }
 
 @app.get("/health")
 def health(db: Session = Depends(get_db)):

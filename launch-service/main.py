@@ -1,160 +1,140 @@
-from fastapi import FastAPI, Depends, HTTPException, Cookie, Query
-from fastapi.responses import RedirectResponse, JSONResponse
-from sqlalchemy import create_engine, text
-from sqlalchemy.orm import sessionmaker, Session
-from jose import jwt, JWTError
 import os
 import requests
-from urllib.parse import urlencode
+import jwt
+from fastapi import FastAPI, HTTPException, Request, Header
+from fastapi.responses import RedirectResponse
+from sqlalchemy import create_engine, text
 
-app = FastAPI(title="RodelSoft - Launch Service")
+MYSQL_HOST = os.getenv("MYSQL_HOST", "mysql")
+MYSQL_PORT = os.getenv("MYSQL_PORT", "3306")
+MYSQL_DATABASE = os.getenv("MYSQL_DATABASE", "proyecto_db")
+MYSQL_USER = os.getenv("MYSQL_USER", "appuser")
+MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "apppass")
 
-# =========================
-# ENV
-# =========================
-DB_USER = os.getenv("MYSQL_USER", "appuser")
-DB_PASSWORD = os.getenv("MYSQL_PASSWORD", "apppass")
-DB_HOST = os.getenv("MYSQL_HOST", "mysql")
-DB_PORT = os.getenv("MYSQL_PORT", "3306")
-DB_NAME = os.getenv("MYSQL_DATABASE", "proyecto_db")
+SECRET_KEY = os.getenv("SECRET_KEY", "miclave_secreta")
+ALGORITHM = os.getenv("ALGORITHM", "HS256")
 
-SECRET_KEY = os.getenv("SECRET_KEY", "supersecret")
-ALGORITHM = "HS256"
+DATABASE_URL = f"mysql+pymysql://{MYSQL_USER}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DATABASE}"
 
-PORTAL_URL = os.getenv("PORTAL_URL", "http://portal:80")
-HEALTH_TIMEOUT = float(os.getenv("HEALTH_TIMEOUT", "2.0"))
-
-DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-
-# =========================
-# DB
-# =========================
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-def get_db():
-    db = SessionLocal()
+app = FastAPI(title="RodelSoft Launch Service")
+
+
+def get_token(request: Request, authorization: str | None):
+    token = None
+
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ")[1]
+
+    if not token:
+        token = request.cookies.get("jwt")
+
+    if not token:
+        raise HTTPException(status_code=401, detail="No token")
+
+    return token
+
+
+def get_username_from_token(token: str):
     try:
-        yield db
-    finally:
-        db.close()
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload["sub"]
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expirado")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Token inválido")
 
-# =========================
-# AUTH
-# =========================
-def verify_token(jwt_cookie: str = Cookie(default=None, alias="jwt")) -> str:
-    if not jwt_cookie:
-        raise HTTPException(status_code=401, detail="No autenticado (cookie jwt no encontrada)")
 
-    try:
-        payload = jwt.decode(jwt_cookie, SECRET_KEY, algorithms=[ALGORITHM])
-        username = payload.get("sub")
-        if not username:
-            raise HTTPException(status_code=401, detail="Token inválido: sin subject")
-        return username
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Token inválido o expirado")
-
-# =========================
-# HELPERS
-# =========================
-def portal_redirect(message: str):
-    params = urlencode({"msg": message})
-    return RedirectResponse(url=f"{PORTAL_URL}/?{params}", status_code=302)
-
-def normalize_entry_path(path: str | None) -> str:
-    if not path:
-        return "/"
-    if not path.startswith("/"):
-        path = "/" + path
-    return path
-
-def build_launch_url(upstream: str, entry_path: str, app_id: int, client_id: int) -> str:
-    entry_path = normalize_entry_path(entry_path)
-
-    # Si entry_path = "/" → http://service:port/?app_id=...&client_id=...
-    # Si entry_path = "/algo" → http://service:port/algo?app_id=...&client_id=...
-    base = upstream.rstrip("/")
-    if entry_path == "/":
-        return f"{base}/?app_id={app_id}&client_id={client_id}"
-    else:
-        return f"{base}{entry_path}?app_id={app_id}&client_id={client_id}"
-
-def check_app_health(upstream: str) -> tuple[bool, str]:
-    # Intento 1: /health
-    try:
-        r = requests.get(f"{upstream.rstrip('/')}/health", timeout=HEALTH_TIMEOUT)
-        if r.ok:
-            return True, "ok"
-    except Exception:
-        pass
-
-    # Intento 2: raíz /
-    try:
-        r = requests.get(f"{upstream.rstrip('/')}/", timeout=HEALTH_TIMEOUT)
-        if r.ok:
-            return True, "ok"
-        return False, f"HTTP {r.status_code}"
-    except Exception as e:
-        return False, str(e)
-
-# =========================
-# ROUTES
-# =========================
 @app.get("/health")
-def health(db: Session = Depends(get_db)):
+def health():
     try:
-        now = db.execute(text("SELECT NOW()")).scalar()
-        return {"status": "ok", "db_time": str(now)}
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return {"status": "ok"}
     except Exception as e:
-        return JSONResponse(status_code=500, content={"status": "error", "detail": str(e)})
+        raise HTTPException(status_code=500, detail=f"DB error: {e}")
+
 
 @app.get("/launch")
 def launch(
-    app_id: int = Query(...),
-    client_id: int = Query(...),
-    username: str = Depends(verify_token),
-    db: Session = Depends(get_db),
+    request: Request,
+    app_id: int,
+    client_id: int,
+    authorization: str | None = Header(default=None),
 ):
-    # 1) Validar permiso
-    q_perm = text("""
-        SELECT 
-            a.id,
-            a.name,
-            a.slug,
-            a.description,
-            a.upstream,
-            a.entry_path,
-            p.role
-        FROM permissions p
-        JOIN users u ON u.id = p.user_id
-        JOIN applications a ON a.id = p.app_id
-        JOIN clients c ON c.id = p.client_id
-        WHERE u.username = :username
-          AND p.app_id = :app_id
-          AND p.client_id = :client_id
-        LIMIT 1
-    """)
+    # 1) JWT
+    token = get_token(request, authorization)
+    username = get_username_from_token(token)
 
-    row = db.execute(q_perm, {
-        "username": username,
-        "app_id": app_id,
-        "client_id": client_id
-    }).fetchone()
+    # 2) Validar permiso
+    with engine.connect() as conn:
+        perm = conn.execute(
+            text("""
+                SELECT 1
+                FROM permissions p
+                JOIN users u ON u.id = p.user_id
+                WHERE u.username = :username
+                  AND p.app_id = :app_id
+                  AND p.client_id = :client_id
+                LIMIT 1
+            """),
+            {"username": username, "app_id": app_id, "client_id": client_id}
+        ).fetchone()
 
-    if not row:
-        return portal_redirect("No tienes permiso para acceder a esa aplicación con el cliente seleccionado.")
+        if not perm:
+            return RedirectResponse(
+                url="/?msg=No tienes permiso para acceder a esa aplicación.",
+                status_code=302
+            )
 
-    resolved_app_id, app_name, slug, description, upstream, entry_path, role = row
+        # 3) Obtener datos de la app
+        app_row = conn.execute(
+            text("""
+                SELECT id, name, slug, upstream, entry_path
+                FROM applications
+                WHERE id = :app_id
+                LIMIT 1
+            """),
+            {"app_id": app_id}
+        ).fetchone()
 
-    # 2) Health check
-    ok, detail = check_app_health(upstream)
-
-    if not ok:
-        return portal_redirect(
-            f"La aplicación '{app_name}' no está disponible por el momento. Intenta más tarde."
+    if not app_row:
+        return RedirectResponse(
+            url="/?msg=La aplicación solicitada no existe.",
+            status_code=302
         )
 
-    # 3) Redirección a la app hija
-    launch_url = build_launch_url(upstream, entry_path, app_id, client_id)
-    return RedirectResponse(url=launch_url, status_code=302)
+    _, app_name, slug, upstream, entry_path = app_row
+
+    entry_path = entry_path or "/"
+    if not entry_path.startswith("/"):
+        entry_path = "/" + entry_path
+
+    # 4) Health check
+    health_url = upstream.rstrip("/") + "/health"
+    try:
+        r = requests.get(health_url, timeout=2)
+        if r.status_code != 200:
+            return RedirectResponse(
+                url=f"/?msg=La aplicación {app_name} no está disponible por el momento.",
+                status_code=302
+            )
+    except Exception:
+        return RedirectResponse(
+            url=f"/?msg=La aplicación {app_name} no está disponible por el momento.",
+            status_code=302
+        )
+
+    # 5) Traducir URL interna Docker -> URL pública del navegador (FASE 2 temporal)
+    public_url = upstream.rstrip("/")
+
+    if "app-hija-1:8000" in public_url:
+        public_url = "http://localhost:8000"
+    elif "app-hija-2:3002" in public_url:
+        public_url = "http://localhost:3002"
+    elif "rodelsoft-pos:8000" in public_url:
+        public_url = "http://localhost:8001"
+
+    final_url = f"{public_url}{entry_path}?app_id={app_id}&client_id={client_id}"
+    return RedirectResponse(url=final_url, status_code=302)

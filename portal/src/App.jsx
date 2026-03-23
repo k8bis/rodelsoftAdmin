@@ -13,6 +13,19 @@ export default function App() {
   // selección por app -> cliente
   const [selectedClientByApp, setSelectedClientByApp] = useState({});
 
+    // Lee mensajes enviados por launch-service (?msg=...)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const incomingMsg = params.get("msg");
+
+    if (incomingMsg) {
+      setMsg(incomingMsg);
+
+      // limpia la URL para no dejar el mensaje pegado
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
+
   const login = async () => {
     setMsg("");
     setLoading(true);
@@ -100,8 +113,8 @@ export default function App() {
       return setMsg(`Selecciona un cliente para app_id=${app_id}.`);
     }
 
-    // FASE 1: usar SIEMPRE el router dinámico central actual
-    window.location.href = `/app/?app_id=${app_id}&client_id=${client_id}`;
+    // FASE 2: usar launch-service
+    window.location.href = `/launch?app_id=${app_id}&client_id=${client_id}`;
   };
 
   return (

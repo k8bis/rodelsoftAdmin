@@ -1,89 +1,187 @@
 const express = require("express");
+const mysql = require("mysql2/promise");
 const jwt = require("jsonwebtoken");
-const pool = require("./db");
-require("dotenv").config();
+const cookieParser = require("cookie-parser");
 
 const app = express();
-const PORT = process.env.APP2_PORT || 3000;
-const SECRET_KEY = process.env.SECRET_KEY;
-
-// Middleware global
 app.use(express.json());
+app.use(cookieParser());
 
-// Middleware JWT
-function verifyToken(req, res, next) {
-  const authHeader = req.headers["authorization"];
-  if (!authHeader?.startsWith("Bearer ")) {
-    return res.status(401).json({ error: "Token requerido" });
+const PORT = process.env.APP2_PORT || 3002;
+
+const dbConfig = {
+  host: process.env.MYSQL_HOST || "mysql",
+  port: process.env.MYSQL_PORT || 3306,
+  user: process.env.MYSQL_USER || "proyecto_user",
+  password: process.env.MYSQL_PASSWORD || "proyecto_pass",
+  database: process.env.MYSQL_DATABASE || "proyecto_db",
+};
+
+const SECRET_KEY = process.env.SECRET_KEY || "miclave_secreta";
+const ALGORITHM = process.env.ALGORITHM || "HS256";
+
+// --- helpers ---
+
+async function getConnection() {
+  return mysql.createConnection(dbConfig);
+}
+
+function getToken(req) {
+  // 1) Header Authorization
+  const auth = req.headers.authorization;
+  if (auth && auth.startsWith("Bearer ")) {
+    return auth.split(" ")[1];
   }
 
-  const token = authHeader.split(" ")[1];
+  // 2) Cookie jwt
+  if (req.cookies && req.cookies.jwt) {
+    return req.cookies.jwt;
+  }
+
+  return null;
+}
+
+function verifyToken(req, res, next) {
+  const token = getToken(req);
+
+  if (!token) {
+    return res.status(401).json({ detail: "No token" });
+  }
+
   try {
-    const payload = jwt.verify(token, SECRET_KEY);
-    req.username = payload.sub;
+    const payload = jwt.verify(token, SECRET_KEY, { algorithms: [ALGORITHM] });
+    req.user = payload.sub;
     next();
   } catch (err) {
-    return res.status(401).json({ error: "Token inválido o expirado" });
+    return res.status(401).json({ detail: "Token inválido o expirado" });
   }
 }
 
-// Endpoint raíz
-app.get("/", (req, res) => res.json({ message: "App Hija 2 funcionando!" }));
+function resolveContext(req) {
+  let appId = req.headers["x-app-id"] ? Number(req.headers["x-app-id"]) : null;
+  let clientId = req.headers["x-client-id"] ? Number(req.headers["x-client-id"]) : null;
 
-// Permisos según usuario JWT
-app.get("/permissions", verifyToken, async (req, res) => {
-  const username = req.username;
-  try {
-    const [rows] = await pool.query(`
-      SELECT a.id AS app_id, a.name AS app,
-             c.id AS client_id, c.name AS client
-      FROM permissions p
-      JOIN applications a ON p.app_id = a.id
-      JOIN clients      c ON p.client_id = c.id
-      JOIN users        u ON p.user_id = u.id
-      WHERE u.username = ?
-      ORDER BY a.name, c.name
-    `, [username]);
-    res.json(rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  // fallback query params si entran directo
+  if (!appId && req.query.app_id) {
+    appId = Number(req.query.app_id);
   }
-});
 
+  if (!clientId && req.query.client_id) {
+    clientId = Number(req.query.client_id);
+  }
 
-app.get('/me', (req, res) => {
-  const client = req.header('x-client-name');
-  res.json({ cliente_seleccionado: client });
-});
+  return { appId, clientId };
+}
 
-app.get("/entry", verifyToken, async (req, res) => {
-  const username = req.username;
-  const appId = Number(req.header("x-app-id"));
-  const clientId = Number(req.header("x-client-id"));
-  if (!appId || !clientId) 
-    return res.status(400).json({ error: "Faltan X-App-Id o X-Client-Id" });
+async function validatePermission(username, appId, clientId) {
+  const conn = await getConnection();
+
   try {
-    const [rows] = await pool.query(`
+    const [rows] = await conn.execute(
+      `
       SELECT 1
       FROM permissions p
       JOIN users u ON u.id = p.user_id
       WHERE u.username = ? AND p.app_id = ? AND p.client_id = ?
       LIMIT 1
-    `, [username, appId, clientId]);
-    if (!rows.length) return res.status(403).json({ error: "Sin permiso" });
+      `,
+      [username, appId, clientId]
+    );
 
-    return res.json({
-      ok: true,
-      user: req.username,
-      app_id: appId,
-      client_id: clientId,
-      note: "App2 /entry OK",
-    });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
+    return rows.length > 0;
+  } finally {
+    await conn.end();
+  }
+}
+
+// --- routes ---
+
+app.get("/health", async (req, res) => {
+  try {
+    const conn = await getConnection();
+    await conn.execute("SELECT 1");
+    await conn.end();
+
+    return res.json({ status: "ok" });
+  } catch (err) {
+    return res.status(500).json({ detail: `DB error: ${String(err)}` });
   }
 });
 
-// Iniciar servidor
-app.listen(PORT, () => console.log(`App Hija 2 corriendo en puerto ${PORT}`));
+app.get("/", verifyToken, async (req, res) => {
+  try {
+    const { appId, clientId } = resolveContext(req);
 
+    if (!appId || !clientId) {
+      return res.status(400).json({ detail: "Faltan app_id o client_id" });
+    }
+
+    const ok = await validatePermission(req.user, appId, clientId);
+
+    if (!ok) {
+      return res.status(403).json({ detail: "Sin permiso para esa app/cliente" });
+    }
+
+    return res.json({
+      message: "App Hija 2 funcionando!",
+      user: req.user,
+      app_id: appId,
+      client_id: clientId,
+      secured: true,
+    });
+  } catch (err) {
+    return res.status(500).json({ detail: String(err) });
+  }
+});
+
+app.get("/me", verifyToken, async (req, res) => {
+  try {
+    const { appId, clientId } = resolveContext(req);
+
+    if (appId && clientId) {
+      const ok = await validatePermission(req.user, appId, clientId);
+
+      if (!ok) {
+        return res.status(403).json({ detail: "Sin permiso para esa app/cliente" });
+      }
+    }
+
+    return res.json({
+      user: req.user,
+      app_id: appId || null,
+      client_id: clientId || null,
+    });
+  } catch (err) {
+    return res.status(500).json({ detail: String(err) });
+  }
+});
+
+app.get("/entry", verifyToken, async (req, res) => {
+  try {
+    const { appId, clientId } = resolveContext(req);
+
+    if (!appId || !clientId) {
+      return res.status(400).json({ detail: "Faltan app_id o client_id" });
+    }
+
+    const ok = await validatePermission(req.user, appId, clientId);
+
+    if (!ok) {
+      return res.status(403).json({ detail: "Sin permiso para esa app/cliente" });
+    }
+
+    return res.json({
+      ok: true,
+      user: req.user,
+      app_id: appId,
+      client_id: clientId,
+      note: "App Hija 2 /entry OK",
+    });
+  } catch (err) {
+    return res.status(500).json({ detail: String(err) });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`App Hija 2 corriendo en puerto ${PORT}`);
+});

@@ -1,20 +1,19 @@
-# apps/app-hija-1/main.py
 import os
 import time
 import jwt
-from datetime import datetime, timedelta
-from fastapi import FastAPI, Depends, HTTPException, Header, Response, Request
-from pydantic import BaseModel
+from datetime import datetime
+from fastapi import FastAPI, Depends, HTTPException, Header, Request
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from db import Base, engine, get_db
 
 SECRET_KEY = os.getenv("SECRET_KEY", "miclave_secreta")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "120"))
 
 app = FastAPI(title="RodelSoft - POS")
+
 Base.metadata.create_all(bind=engine)
+
 
 def verify_token(request: Request, authorization: str | None = Header(default=None)) -> str:
     """
@@ -43,10 +42,10 @@ def verify_token(request: Request, authorization: str | None = Header(default=No
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Token inválido")
 
+
 # Espera a que la DB esté lista (sin tumbar el contenedor)
 @app.on_event("startup")
 def _startup():
-    # Intenta crear tablas y hacer un SELECT NOW() con reintentos
     retries = 20
     for i in range(retries):
         try:
@@ -56,19 +55,11 @@ def _startup():
             break
         except Exception as e:
             if i == retries - 1:
-                # Ya no reintenta: levanta app pero endpoints darán error controlado
                 print(f"[startup] DB no disponible: {e}")
             else:
                 print(f"[startup] Esperando DB... intento {i+1}/{retries}")
                 time.sleep(2)
 
-class Login(BaseModel):
-    username: str
-    password: str
-
-@app.get("/")
-def root():
-    return {"message": "RodelSoft - POS funcionando!"}
 
 @app.get("/health")
 def health(db: Session = Depends(get_db)):
@@ -78,135 +69,124 @@ def health(db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB error: {e}")
 
-@app.post("/login")
-def login(data: Login, response: Response, db: Session = Depends(get_db)):
-    q = text("SELECT id FROM users WHERE username=:u AND password=:p")
-    user = db.execute(q, {"u": data.username, "p": data.password}).fetchone()
-    if not user:
-        raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
 
-    payload = {
-        "sub": data.username,
-        "exp": datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
-    }
-    token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
-
-    # COOKIE con el JWT (para que Nginx pueda leerla)
-    # HttpOnly para que JS no lo lea; SameSite=Lax para navegación básica
-    response.set_cookie(
-        key="jwt",
-        value=token,
-        httponly=True,
-        samesite="lax",
-        path="/"
-    )
-
-    return {"status": "ok", "access_token": token, "token_type": "bearer"}
-
-
-@app.get("/permissions")
-def permissions(user: str = Depends(verify_token), db: Session = Depends(get_db)):
-    q = text("""
-        SELECT a.id AS app_id, a.name AS app,
-               c.id AS client_id, c.name AS client
-        FROM permissions p
-        JOIN applications a ON p.app_id = a.id
-        JOIN clients      c ON p.client_id = c.id
-        JOIN users        u ON p.user_id = u.id
-        WHERE u.username = :username
-        ORDER BY a.name, c.name
-    """)
-    rows = db.execute(q, {"username": user}).fetchall()
-    return [
-        {"app_id": r[0], "app": r[1], "client_id": r[2], "client": r[3]}
-        for r in rows
-    ]
-
-@app.get("/validate")
-def validate(request: Request, authorization: str | None = Header(default=None)):
-    """
-    Usado por Nginx auth_request. Valida JWT desde:
-    - Header Authorization: Bearer <token> (si Nginx lo pasa)
-    - Cookie 'jwt' (fallback)
-    """
-    token = None
-    # 1) Prioridad: header Authorization
-    if authorization and authorization.startswith("Bearer "):
-        token = authorization.split(" ")[1]
-    # 2) Si no hay header, tomar cookie
-    if not token:
-        token = request.cookies.get("jwt")
-
-    if not token:
-        raise HTTPException(status_code=401, detail="No token")
-
-    try:
-        jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        return {"status": "ok"}
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expirado")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Token inválido")
-
-@app.post("/logout")
-def logout(response: Response):
-    """
-    Elimina la cookie JWT para cerrar sesión.
-    """
-    response.delete_cookie("jwt", path="/")
-    return {"status": "bye"}
-
-@app.get("/me")
-def get_me(
-    user: str = Depends(verify_token),
-    x_app_id: int | None = Header(alias="X-App-Id", default=None),
-    x_client_id: int | None = Header(alias="X-Client-Id", default=None),
+def resolve_context(
+    request: Request,
+    x_app_id: int | None,
+    x_client_id: int | None,
 ):
-    return {"user": user, "app_id": x_app_id, "client_id": x_client_id}
+    """
+    Prioridad:
+    1) Headers (cuando entra por Nginx)
+    2) Query params (cuando entra directo por navegador)
+    """
+    app_id = x_app_id
+    client_id = x_client_id
 
-@app.get("/my/apps")
-def my_apps(user: str = Depends(verify_token), db: Session = Depends(get_db)):
+    if app_id is None:
+        q = request.query_params.get("app_id")
+        if q and q.isdigit():
+            app_id = int(q)
+
+    if client_id is None:
+        q = request.query_params.get("client_id")
+        if q and q.isdigit():
+            client_id = int(q)
+
+    return app_id, client_id
+
+
+def validate_permission(
+    db: Session,
+    username: str,
+    app_id: int,
+    client_id: int,
+):
     q = text("""
-        SELECT a.id AS app_id, a.name AS app, c.id AS client_id, c.name AS client
+        SELECT 1
         FROM permissions p
-        JOIN applications a ON p.app_id = a.id
-        JOIN clients      c ON p.client_id = c.id
-        JOIN users        u ON p.user_id = u.id
+        JOIN users u ON u.id = p.user_id
         WHERE u.username = :username
-        ORDER BY a.name, c.name
+          AND p.app_id = :app_id
+          AND p.client_id = :client_id
+        LIMIT 1
     """)
-    rows = db.execute(q, {"username": user}).fetchall()
-    grouped = {}
-    for app_id, app, client_id, client in rows:
-        if app_id not in grouped:
-            grouped[app_id] = {"app_id": app_id, "app": app, "clients": []}
-        grouped[app_id]["clients"].append({"id": client_id, "name": client})
-    return list(grouped.values())
+    ok = db.execute(
+        q,
+        {
+            "username": username,
+            "app_id": app_id,
+            "client_id": client_id,
+        }
+    ).fetchone()
 
-@app.get("/apps")
-def apps_catalog(db: Session = Depends(get_db)):
-    rows = db.execute(text("SELECT id, name, description FROM applications ORDER BY name")).fetchall()
-    return [{"id": r[0], "name": r[1], "description": r[2]} for r in rows]
+    if not ok:
+        raise HTTPException(status_code=403, detail="Sin permiso para esa app/cliente")
 
-@app.get("/entry")
-def entry(
+
+@app.get("/")
+def root(
+    request: Request,
     user: str = Depends(verify_token),
     db: Session = Depends(get_db),
     x_app_id: int | None = Header(alias="X-App-Id", default=None),
     x_client_id: int | None = Header(alias="X-Client-Id", default=None),
 ):
-    if not x_app_id or not x_client_id:
-        raise HTTPException(status_code=400, detail="Faltan X-App-Id o X-Client-Id")
-    # Validar que el usuario tenga ese permiso
-    q = text("""
-      SELECT 1
-      FROM permissions p
-      JOIN users u ON u.id = p.user_id
-      WHERE u.username = :username AND p.app_id = :app_id AND p.client_id = :client_id
-      LIMIT 1
-    """)
-    ok = db.execute(q, {"username": user, "app_id": x_app_id, "client_id": x_client_id}).fetchone()
-    if not ok:
-        raise HTTPException(status_code=403, detail="Sin permiso para esa app/cliente")
-    
-    return {"ok": True, "user": user, "app_id": x_app_id, "client_id": x_client_id, "note": "RodelSoft POS /entry OK"}
+    app_id, client_id = resolve_context(request, x_app_id, x_client_id)
+
+    if not app_id or not client_id:
+        raise HTTPException(status_code=400, detail="Faltan app_id o client_id")
+
+    validate_permission(db, user, app_id, client_id)
+
+    return {
+        "message": "RodelSoft - POS funcionando!",
+        "user": user,
+        "app_id": app_id,
+        "client_id": client_id,
+        "secured": True,
+    }
+
+
+@app.get("/me")
+def me(
+    request: Request,
+    user: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+    x_app_id: int | None = Header(alias="X-App-Id", default=None),
+    x_client_id: int | None = Header(alias="X-Client-Id", default=None),
+):
+    app_id, client_id = resolve_context(request, x_app_id, x_client_id)
+
+    if app_id and client_id:
+        validate_permission(db, user, app_id, client_id)
+
+    return {
+        "user": user,
+        "app_id": app_id,
+        "client_id": client_id,
+    }
+
+
+@app.get("/entry")
+def entry(
+    request: Request,
+    user: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+    x_app_id: int | None = Header(alias="X-App-Id", default=None),
+    x_client_id: int | None = Header(alias="X-Client-Id", default=None),
+):
+    app_id, client_id = resolve_context(request, x_app_id, x_client_id)
+
+    if not app_id or not client_id:
+        raise HTTPException(status_code=400, detail="Faltan app_id o client_id")
+
+    validate_permission(db, user, app_id, client_id)
+
+    return {
+        "ok": True,
+        "user": user,
+        "app_id": app_id,
+        "client_id": client_id,
+        "note": "RodelSoft POS /entry OK",
+    }
