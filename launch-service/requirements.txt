@@ -4,3 +4,5 @@ sqlalchemy
 pymysql
 PyJWT
 requests
+python-jose[cryptography]
+httpx

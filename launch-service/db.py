@@ -30,14 +30,14 @@ def wait_for_db():
         try:
             with engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
-            print(f"[DB] Conexión OK en intento {attempt}")
+            print(f"[DB] launch-service OK en intento {attempt}")
             return
         except Exception as e:
             last_error = e
-            print(f"[DB] Intento {attempt}/{MAX_RETRIES} falló: {e}")
+            print(f"[DB] launch-service intento {attempt}/{MAX_RETRIES} falló: {e}")
             time.sleep(RETRY_DELAY)
 
-    raise RuntimeError(f"No se pudo conectar a MySQL tras {MAX_RETRIES} intentos: {last_error}")
+    raise RuntimeError(f"launch-service no pudo conectar a MySQL tras {MAX_RETRIES} intentos: {last_error}")
 
 wait_for_db()
 

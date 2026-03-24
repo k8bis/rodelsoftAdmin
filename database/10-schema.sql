@@ -1,6 +1,6 @@
 -- =====================================================================
--- RodelSoft Admin - SCHEMA (FASE 3)
--- Modelo profesional de catálogo de aplicaciones
+-- RodelSoft Admin - 10-schema.sql
+-- Modelo oficial Fase 3.1 (solo estructura)
 -- =====================================================================
 
 SET NAMES utf8mb4;
@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS clients (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =========================
--- APLICACIONES (catálogo profesional)
+-- APLICACIONES
 -- =========================
 CREATE TABLE IF NOT EXISTS applications (
   id INT AUTO_INCREMENT PRIMARY KEY,

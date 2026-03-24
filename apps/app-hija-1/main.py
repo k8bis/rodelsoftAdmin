@@ -14,7 +14,6 @@ ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "120"))
 
 app = FastAPI(title="App Hija 1 - FastAPI")
-Base.metadata.create_all(bind=engine)
 
 def verify_token(request: Request, authorization: str | None = Header(default=None)) -> str:
     """
@@ -50,7 +49,6 @@ def _startup():
     retries = 20
     for i in range(retries):
         try:
-            Base.metadata.create_all(bind=engine)
             with engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
             break

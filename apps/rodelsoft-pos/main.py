@@ -12,9 +12,6 @@ ALGORITHM = os.getenv("ALGORITHM", "HS256")
 
 app = FastAPI(title="RodelSoft - POS")
 
-Base.metadata.create_all(bind=engine)
-
-
 def verify_token(request: Request, authorization: str | None = Header(default=None)) -> str:
     """
     Devuelve el username del JWT.
@@ -49,7 +46,6 @@ def _startup():
     retries = 20
     for i in range(retries):
         try:
-            Base.metadata.create_all(bind=engine)
             with engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
             break

@@ -3,3 +3,5 @@ uvicorn[standard]
 sqlalchemy
 mysql-connector-python
 python-dotenv
+pymysql
+python-jose[cryptography]
