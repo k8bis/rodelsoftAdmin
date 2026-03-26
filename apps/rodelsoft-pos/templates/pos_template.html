@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>__APP_NAME__ - __CLIENT_NAME__</title>
+    <link rel="stylesheet" href="/static/pos.css">
+
+</head>
+<body>
+    <header class="header">
+        <div class="logo">🛒 RodelSoft</div>
+        <div class="app-info">
+            <div class="app-title">__CLIENT_NAME__</div>
+            <div class="app-subtitle">Punto de Venta</div>
+        </div>
+        <div class="user-menu">
+            <button id="userMenuBtn">👤 __USER__ ▾</button>
+            <div id="userDropdown" class="user-dropdown">
+                <button id="logoutBtn" class="user-dropdown-item">Cerrar sesión</button>
+                <button id="appsMenuBtn" class="user-dropdown-item">Volver a apps</button>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="products-section">
+            <div class="section-header">
+                <h3 class="section-title">Catálogo de Productos</h3>
+                <button class="refresh-btn" id="refreshBtn" title="Actualizar catálogo">
+                    🔄 Refrescar
+                </button>
+            </div>
+
+            <input type="text" class="search-bar" placeholder="Buscar productos..." id="searchInput">
+
+            <div class="categories" id="categoriesContainer"></div>
+
+            <div class="products-grid" id="productsGrid"></div>
+        </div>
+
+        <div class="cart-section">
+            <div class="cart-header">
+                <h3>Carrito de Compras</h3>
+            </div>
+
+            <div class="cart-items" id="cartItems"></div>
+            <div class="cart-total" id="cartTotal">Total: $0.00</div>
+            <button class="btn btn-success" id="checkoutBtn" style="margin-top: 1rem;">💳 Procesar Pago</button>
+        </div>
+    </div>
+
+    <script src="/static/pos.js"></script>
+
+</body>
+</html>

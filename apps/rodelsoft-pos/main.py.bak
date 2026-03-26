@@ -1,0 +1,1651 @@
+import os
+import time
+import jwt
+from datetime import datetime
+from typing import List, Optional
+from fastapi import FastAPI, Depends, HTTPException, Header, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+from pydantic import BaseModel
+from db import Base, engine, get_db, Category, Product, Sale, SaleItem
+
+# Modelos Pydantic para API
+class CategoryCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    color: str = "#0066FF"
+
+class CategoryResponse(BaseModel):
+    id: int
+    name: str
+    description: Optional[str]
+    color: str
+    is_active: bool
+
+class ProductCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    price: float
+    cost: float = 0.0
+    sku: Optional[str] = None
+    barcode: Optional[str] = None
+    category_id: Optional[int] = None
+    stock_quantity: int = 0
+    min_stock: int = 0
+
+class ProductResponse(BaseModel):
+    id: int
+    name: str
+    description: Optional[str]
+    price: float
+    cost: float
+    sku: Optional[str]
+    barcode: Optional[str]
+    category_id: Optional[int]
+    category_name: Optional[str]
+    stock_quantity: int
+    min_stock: int
+    is_active: bool
+    image_url: Optional[str]
+
+class SaleItemCreate(BaseModel):
+    product_id: int
+    quantity: int
+
+class SaleCreate(BaseModel):
+    items: List[SaleItemCreate]
+    payment_method: str = "cash"
+    notes: Optional[str] = None
+
+class SaleItemResponse(BaseModel):
+    id: int
+    product_id: int
+    product_name: str
+    quantity: int
+    unit_price: float
+    total_price: float
+
+class SaleResponse(BaseModel):
+    id: int
+    total_amount: float
+    tax_amount: float
+    discount_amount: float
+    payment_method: str
+    status: str
+    notes: Optional[str]
+    created_at: datetime
+    items: List[SaleItemResponse]
+
+SECRET_KEY = os.getenv("SECRET_KEY", "miclave_secreta")
+ALGORITHM = os.getenv("ALGORITHM", "HS256")
+
+app = FastAPI(title="RodelSoft - POS")
+
+def verify_token(request: Request, authorization: str | None = Header(default=None)) -> str:
+    """
+    Devuelve el username del JWT.
+    Busca el token primero en Authorization: Bearer ... (inyectado por Nginx),
+    y si no existe, intenta leer la cookie 'jwt' (por si llamas directo).
+    """
+    token = None
+
+    # 1) Header Authorization (preferido; Nginx lo inyecta desde la cookie)
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ")[1]
+
+    # 2) Fallback: cookie 'jwt'
+    if not token:
+        token = request.cookies.get("jwt")
+
+    if not token:
+        raise HTTPException(status_code=401, detail="No token")
+
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload["sub"]  # username
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expirado")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Token inválido")
+
+
+# Espera a que la DB esté lista (sin tumbar el contenedor)
+@app.on_event("startup")
+def _startup():
+    retries = 20
+    for i in range(retries):
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            break
+        except Exception as e:
+            if i == retries - 1:
+                print(f"[startup] DB no disponible: {e}")
+            else:
+                print(f"[startup] Esperando DB... intento {i+1}/{retries}")
+                time.sleep(2)
+
+
+@app.get("/health")
+def health(db: Session = Depends(get_db)):
+    try:
+        now = db.execute(text("SELECT NOW()")).fetchone()[0]
+        return {"status": "ok", "db_time": str(now)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"DB error: {e}")
+
+
+def resolve_context(
+    request: Request,
+    x_app_id: int | None,
+    x_client_id: int | None,
+):
+    """
+    Prioridad:
+    1) Headers (cuando entra por Nginx)
+    2) Query params (cuando entra directo por navegador)
+    """
+    app_id = x_app_id
+    client_id = x_client_id
+
+    if app_id is None:
+        q = request.query_params.get("app_id")
+        if q and q.isdigit():
+            app_id = int(q)
+
+    if client_id is None:
+        q = request.query_params.get("client_id")
+        if q and q.isdigit():
+            client_id = int(q)
+
+    return app_id, client_id
+
+
+def validate_permission(
+    db: Session,
+    username: str,
+    app_id: int,
+    client_id: int,
+):
+    q = text("""
+        SELECT 1
+        FROM permissions p
+        JOIN users u ON u.id = p.user_id
+        WHERE u.username = :username
+          AND p.app_id = :app_id
+          AND p.client_id = :client_id
+        LIMIT 1
+    """)
+    ok = db.execute(
+        q,
+        {
+            "username": username,
+            "app_id": app_id,
+            "client_id": client_id,
+        }
+    ).fetchone()
+
+    if not ok:
+        raise HTTPException(status_code=403, detail="Sin permiso para esa app/cliente")
+
+
+@app.get("/", response_class=HTMLResponse)
+def root(
+    request: Request,
+    user: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+    x_app_id: int | None = Header(alias="X-App-Id", default=None),
+    x_client_id: int | None = Header(alias="X-Client-Id", default=None),
+):
+    app_id, client_id = resolve_context(request, x_app_id, x_client_id)
+
+    if not app_id or not client_id:
+        raise HTTPException(status_code=400, detail="Faltan app_id o client_id")
+
+    validate_permission(db, user, app_id, client_id)
+
+    # Obtener información del cliente y app para el título
+    from sqlalchemy import text as sql_text
+    app_info = db.execute(
+        sql_text("""
+            SELECT a.name AS app,
+                   c.name AS client_name
+            FROM applications a
+            JOIN permissions s ON a.id = s.app_id
+            JOIN clients c ON c.id = s.client_id
+            JOIN users u ON u.id = s.user_id
+            WHERE a.id = :app_id
+              AND s.client_id = :client_id
+              AND u.username = :username
+            LIMIT 1
+        """),
+        {"app_id": app_id, "client_id": client_id, "username": user}
+    ).fetchone()
+
+    app_name = app_info.app if app_info else "POS"
+    client_name = app_info.client_name if app_info else "Cliente"
+    app_menu_url = os.getenv("APP_MENU_URL", "/")
+    logout_redirect_url = os.getenv("LOGOUT_REDIRECT_URL", "/")
+
+    # Devuelve directamente la interfaz del POS
+    html_content = """
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{app_name} - {client_name}</title>
+    <style>
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+        }}
+
+        :root {{
+            --primary: #003366;
+            --secondary: #0066FF;
+            --accent: #00A8E8;
+            --success: #00C853;
+            --warning: #FFC107;
+            --error: #F44336;
+            --light: #F5F7FA;
+            --border: #E0E6ED;
+            --text: #1A1A1A;
+            --text-light: #555555;
+        }}
+
+        body {{
+            background-color: var(--light);
+            color: var(--text);
+        }}
+
+        .header {{
+            background: var(--primary);
+            color: white;
+            padding: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }}
+
+        .logo {{
+            font-size: 1.5rem;
+            font-weight: bold;
+        }}
+
+        .app-info {{
+            text-align: center;
+            flex: 1;
+        }}
+
+        .app-title {{
+            font-size: 1.2rem;
+            font-weight: bold;
+            margin-bottom: 0.25rem;
+        }}
+
+        .app-subtitle {{
+            font-size: 0.9rem;
+            opacity: 0.9;
+        }}
+
+        .user-menu {{
+            position: relative;
+            text-align: right;
+        }}
+
+        .user-menu button {{
+            background: transparent;
+            border: 1px solid rgba(255,255,255,0.6);
+            color: white;
+            padding: 0.4rem 0.8rem;
+            border-radius: 999px;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }}
+
+        .user-dropdown {{
+            position: absolute;
+            right: 0;
+            top: 2.3rem;
+            background: white;
+            color: #1A1A1A;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+            display: none;
+            min-width: 180px;
+            z-index: 1000;
+        }}
+
+        .user-dropdown.show {{
+            display: block;
+        }}
+
+        .user-dropdown-item {{
+            width: 100%;
+            border: none;
+            background: transparent;
+            text-align: left;
+            padding: 0.75rem 0.9rem;
+            cursor: pointer;
+            font-size: 0.9rem;
+            color: #1A1A1A;
+        }}
+
+        .user-dropdown-item:hover {{
+            background: var(--light);
+        }}
+
+        .container {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 1rem;
+            padding: 1rem;
+            height: calc(100vh - 80px);
+        }}
+
+        .products-section {{
+            background: white;
+            border-radius: 8px;
+            padding: 1rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }}
+
+        .section-header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }}
+
+        .section-title {{
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: var(--primary);
+        }}
+
+        .refresh-btn {{
+            padding: 0.5rem 1rem;
+            background: var(--secondary);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.3s;
+        }}
+
+        .refresh-btn:hover {{
+            background: var(--primary);
+        }}
+
+        .categories {{
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }}
+
+        .category-btn {{
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 20px;
+            background: var(--light);
+            color: var(--primary);
+            cursor: pointer;
+            transition: all 0.3s;
+        }}
+
+        .category-btn.active {{
+            background: var(--secondary);
+            color: white;
+        }}
+
+        .products-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 1rem;
+            max-height: 60vh;
+            overflow-y: auto;
+        }}
+
+        .product-card {{
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+        }}
+
+        .product-card:hover {{
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            transform: translateY(-2px);
+        }}
+
+        .product-name {{
+            font-weight: bold;
+            margin-bottom: 0.5rem;
+        }}
+
+        .product-price {{
+            color: var(--secondary);
+            font-size: 1.1rem;
+            font-weight: bold;
+        }}
+
+        .cart-section {{
+            background: white;
+            border-radius: 8px;
+            padding: 1rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            display: flex;
+            flex-direction: column;
+        }}
+
+        .cart-header {{
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid var(--primary);
+        }}
+
+        .cart-items {{
+            flex: 1;
+            overflow-y: auto;
+            margin-bottom: 1rem;
+        }}
+
+        .cart-item {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid var(--border);
+        }}
+
+        .cart-total {{
+            background: var(--primary);
+            color: white;
+            padding: 1rem;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 1.2rem;
+            font-weight: bold;
+        }}
+
+        .btn {{
+            padding: 0.75rem 1rem;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+        }}
+
+        .btn-primary {{
+            background: var(--secondary);
+            color: white;
+        }}
+
+        .btn-primary:hover {{
+            background: var(--primary);
+        }}
+
+        .btn-success {{
+            background: var(--success);
+            color: white;
+        }}
+
+        .btn-success:hover {{
+            background: #2E7D32;
+        }}
+
+        .quantity-controls {{
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }}
+
+        .quantity-btn {{
+            width: 30px;
+            height: 30px;
+            border: 1px solid var(--border);
+            background: white;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }}
+
+        .search-bar {{
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            margin-bottom: 1rem;
+        }}
+
+        @media (max-width: 768px) {{
+            .container {{
+                grid-template-columns: 1fr;
+                height: auto;
+            }}
+
+            .products-grid {{
+                grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            }}
+        }}
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="logo">🛒 RodelSoft</div>
+        <div class="app-info">
+            <div class="app-title">{client_name}</div>
+            <div class="app-subtitle">Punto de Venta</div>
+        </div>
+        <div class="user-menu">
+            <button id="userMenuBtn">👤 {user} ▾</button>
+            <div id="userDropdown" class="user-dropdown">
+                <button id="logoutBtn" class="user-dropdown-item">Cerrar sesión</button>
+                <button id="appsMenuBtn" class="user-dropdown-item">Volver a apps</button>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="products-section">
+            <div class="section-header">
+                <h3 class="section-title">Catálogo de Productos</h3>
+                <button class="refresh-btn" id="refreshBtn" title="Actualizar catálogo">
+                    🔄 Refrescar
+                </button>
+            </div>
+
+            <input type="text" class="search-bar" placeholder="Buscar productos..." id="searchInput">
+
+            <div class="categories" id="categoriesContainer">
+                <!-- Categorías se cargarán aquí -->
+            </div>
+
+            <div class="products-grid" id="productsGrid">
+                <!-- Productos se cargarán aquí -->
+            </div>
+        </div>
+
+        <div class="cart-section">
+            <div class="cart-header">
+                <h3>Carrito de Compras</h3>
+            </div>
+
+            <div class="cart-items" id="cartItems">
+                <!-- Items del carrito -->
+            </div>
+
+            <div class="cart-total" id="cartTotal">
+                Total: $0.00
+            </div>
+
+            <button class="btn btn-success" id="checkoutBtn" style="margin-top: 1rem;">
+                💳 Procesar Pago
+            </button>
+        </div>
+    </div>
+
+    <script>
+        let categories = [];
+        let products = [];
+        let cart = {{}};
+
+        // Cargar datos iniciales
+        async function loadData() {{
+            try {{
+                const [categoriesRes, productsRes] = await Promise.all([
+                    fetch('/api/categories'),
+                    fetch('/api/products')
+                ]);
+
+                categories = await categoriesRes.json();
+                products = await productsRes.json();
+
+                renderCategories();
+                renderProducts();
+            }} catch (error) {{
+                console.error('Error cargando datos:', error);
+            }}
+        }}
+
+        // Renderizar categorías
+        function renderCategories() {{
+            const container = document.getElementById('categoriesContainer');
+            container.innerHTML = '<button class="category-btn active" data-category="all">Todas</button>';
+
+            categories.forEach(category => {{
+                const btn = document.createElement('button');
+                btn.className = 'category-btn';
+                btn.textContent = category.name;
+                btn.dataset.category = category.id;
+                btn.onclick = () => filterByCategory(category.id);
+                container.appendChild(btn);
+            }});
+        }}
+
+        // Renderizar productos
+        function renderProducts(filteredProducts = products) {{
+            const grid = document.getElementById('productsGrid');
+            grid.innerHTML = '';
+
+            filteredProducts.forEach(product => {{
+                const card = document.createElement('div');
+                card.className = 'product-card';
+                card.onclick = () => addToCart(product.id);
+
+                card.innerHTML = `
+                    <div class="product-name">${{product.name}}</div>
+                    <div class="product-price">$${{product.price.toFixed(2)}}</div>
+                `;
+
+                grid.appendChild(card);
+            }});
+        }}
+
+        // Filtrar por categoría
+        function filterByCategory(categoryId) {{
+            document.querySelectorAll('.category-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+
+            if (categoryId === 'all') {{
+                renderProducts();
+            }} else {{
+                const filtered = products.filter(p => p.category_id == categoryId);
+                renderProducts(filtered);
+            }}
+        }}
+
+        // Agregar al carrito
+        function addToCart(productId) {{
+            const product = products.find(p => p.id == productId);
+            if (!product) return;
+
+            if (cart[productId]) {{
+                cart[productId].quantity += 1;
+            }} else {{
+                cart[productId] = {{
+                    ...product,
+                    quantity: 1
+                }};
+            }}
+
+            renderCart();
+        }}
+
+        // Renderizar carrito
+        function renderCart() {{
+            const container = document.getElementById('cartItems');
+            const totalEl = document.getElementById('cartTotal');
+
+            container.innerHTML = '';
+            let total = 0;
+
+            Object.values(cart).forEach(item => {{
+                const itemTotal = item.price * item.quantity;
+                total += itemTotal;
+
+                const itemEl = document.createElement('div');
+                itemEl.className = 'cart-item';
+                itemEl.innerHTML = `
+                    <div>
+                        <div style="font-weight: bold;">${{item.name}}</div>
+                        <div style="color: var(--text-light); font-size: 0.9rem;">$${{item.price.toFixed(2)}} c/u</div>
+                    </div>
+                    <div class="quantity-controls">
+                        <button class="quantity-btn" onclick="updateQuantity(${{item.id}}, ${{item.quantity - 1}})">-</button>
+                        <span>${{item.quantity}}</span>
+                        <button class="quantity-btn" onclick="updateQuantity(${{item.id}}, ${{item.quantity + 1}})">+</button>
+                    </div>
+                    <div style="font-weight: bold;">$${{itemTotal.toFixed(2)}}</div>
+                `;
+
+                container.appendChild(itemEl);
+            }});
+
+            totalEl.textContent = `Total: $${{total.toFixed(2)}}`;
+        }}
+
+        // Actualizar cantidad
+        function updateQuantity(productId, newQuantity) {{
+            if (newQuantity <= 0) {{
+                delete cart[productId];
+            }} else {{
+                cart[productId].quantity = newQuantity;
+            }}
+            renderCart();
+        }}
+
+        // Procesar pago
+        async function checkout() {{
+            if (Object.keys(cart).length === 0) {{
+                alert('El carrito está vacío');
+                return;
+            }}
+
+            const items = Object.values(cart).map(item => ({{
+                product_id: item.id,
+                quantity: item.quantity
+            }}));
+
+            try {{
+                const response = await fetch('/api/sales', {{
+                    method: 'POST',
+                    headers: {{
+                        'Content-Type': 'application/json',
+                    }},
+                    body: JSON.stringify({{
+                        items: items,
+                        payment_method: 'cash'
+                    }})
+                }});
+
+                if (response.ok) {{
+                    alert('Venta procesada exitosamente!');
+                    cart = {{}};
+                    renderCart();
+                    loadData(); // Recargar productos para actualizar stock
+                }} else {{
+                    const error = await response.json();
+                    alert('Error: ' + error.detail);
+                }}
+            }} catch (error) {{
+                console.error('Error procesando venta:', error);
+                alert('Error procesando la venta');
+            }}
+        }}
+
+        // Búsqueda
+        document.getElementById('searchInput').addEventListener('input', function(e) {{
+            const searchTerm = e.target.value.toLowerCase();
+            const filtered = products.filter(p =>
+                p.name.toLowerCase().includes(searchTerm)
+            );
+            renderProducts(filtered);
+        }});
+
+        // Event listeners
+        document.getElementById('checkoutBtn').addEventListener('click', checkout);
+        document.getElementById('refreshBtn').addEventListener('click', function() {{
+            loadData();
+        }});
+
+        const APP_MENU_URL = "{app_menu_url}";
+        const LOGOUT_REDIRECT_URL = "{logout_redirect_url}";
+
+        const userMenuBtn = document.getElementById('userMenuBtn');
+        const userDropdown = document.getElementById('userDropdown');
+
+        if (userMenuBtn && userDropdown) {{
+            userMenuBtn.addEventListener('click', function(event) {{
+                event.stopPropagation();
+                userDropdown.classList.toggle('show');
+            }});
+
+            window.addEventListener('click', function() {{
+                userDropdown.classList.remove('show');
+            }});
+
+            document.getElementById('logoutBtn').addEventListener('click', async function() {{
+                try {{
+                    await fetch('/logout', {{ method: 'POST' }});
+                }} catch (e) {{
+                    console.error('Error en logout', e);
+                }}
+                window.location.href = LOGOUT_REDIRECT_URL;
+            }});
+
+            document.getElementById('appsMenuBtn').addEventListener('click', function() {{
+                window.location.href = APP_MENU_URL;
+            }});
+        }}
+
+        // Cargar datos al inicio
+        loadData();
+    </script>
+</body>
+</html>
+    """
+
+    html_content = html_content.replace("{client_name}", client_name).replace("{app_name}", app_name).replace("{user}", user).replace("{app_menu_url}", app_menu_url).replace("{logout_redirect_url}", logout_redirect_url)
+    html_content = html_content.replace("{{", "{").replace("}}", "}")
+    return HTMLResponse(content=html_content)
+
+
+
+@app.post("/logout")
+def logout():
+    response = RedirectResponse(url=os.getenv("LOGOUT_REDIRECT_URL", "/login"))
+    response.delete_cookie("jwt", path="/")
+    return response
+
+
+@app.get("/apps-menu")
+def apps_menu():
+    return RedirectResponse(url=os.getenv("APP_MENU_URL", "/"))
+
+
+@app.get("/me")
+def me(
+    request: Request,
+    user: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+    x_app_id: int | None = Header(alias="X-App-Id", default=None),
+    x_client_id: int | None = Header(alias="X-Client-Id", default=None),
+):
+    app_id, client_id = resolve_context(request, x_app_id, x_client_id)
+
+    if app_id and client_id:
+        validate_permission(db, user, app_id, client_id)
+
+    return {
+        "user": user,
+        "app_id": app_id,
+        "client_id": client_id,
+    }
+
+
+@app.get("/entry")
+def entry(
+    request: Request,
+    user: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+    x_app_id: int | None = Header(alias="X-App-Id", default=None),
+    x_client_id: int | None = Header(alias="X-Client-Id", default=None),
+):
+    app_id, client_id = resolve_context(request, x_app_id, x_client_id)
+
+    if not app_id or not client_id:
+        raise HTTPException(status_code=400, detail="Faltan app_id o client_id")
+
+    validate_permission(db, user, app_id, client_id)
+
+    return {
+        "ok": True,
+        "user": user,
+        "app_id": app_id,
+        "client_id": client_id,
+        "note": "RodelSoft POS /entry OK",
+    }
+
+# ==========================================
+# RUTAS DEL PUNTO DE VENTA
+# ==========================================
+
+# CATEGORÍAS
+@app.get("/api/categories", response_model=List[CategoryResponse])
+def get_categories(
+    request: Request,
+    user: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+    x_app_id: int | None = Header(alias="X-App-Id", default=None),
+    x_client_id: int | None = Header(alias="X-Client-Id", default=None),
+):
+    app_id, client_id = resolve_context(request, x_app_id, x_client_id)
+    if app_id and client_id:
+        validate_permission(db, user, app_id, client_id)
+
+    categories = db.query(Category).filter(Category.is_active == True).all()
+    return categories
+
+@app.post("/api/categories", response_model=CategoryResponse)
+def create_category(
+    category: CategoryCreate,
+    request: Request,
+    user: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+    x_app_id: int | None = Header(alias="X-App-Id", default=None),
+    x_client_id: int | None = Header(alias="X-Client-Id", default=None),
+):
+    app_id, client_id = resolve_context(request, x_app_id, x_client_id)
+    if app_id and client_id:
+        validate_permission(db, user, app_id, client_id)
+
+    db_category = Category(**category.dict())
+    db.add(db_category)
+    db.commit()
+    db.refresh(db_category)
+    return db_category
+
+# PRODUCTOS
+@app.get("/api/products", response_model=List[ProductResponse])
+def get_products(
+    request: Request,
+    category_id: Optional[int] = None,
+    search: Optional[str] = None,
+    user: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+    x_app_id: int | None = Header(alias="X-App-Id", default=None),
+    x_client_id: int | None = Header(alias="X-Client-Id", default=None),
+):
+    app_id, client_id = resolve_context(request, x_app_id, x_client_id)
+    if app_id and client_id:
+        validate_permission(db, user, app_id, client_id)
+
+    query = db.query(Product).filter(Product.is_active == True)
+
+    if category_id:
+        query = query.filter(Product.category_id == category_id)
+
+    if search:
+        query = query.filter(Product.name.ilike(f"%{search}%"))
+
+    products = query.all()
+
+    # Agregar nombre de categoría
+    result = []
+    for product in products:
+        product_dict = {
+            **product.__dict__,
+            "category_name": product.category.name if product.category else None
+        }
+        result.append(product_dict)
+
+    return result
+
+@app.post("/api/products", response_model=ProductResponse)
+def create_product(
+    product: ProductCreate,
+    request: Request,
+    user: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+    x_app_id: int | None = Header(alias="X-App-Id", default=None),
+    x_client_id: int | None = Header(alias="X-Client-Id", default=None),
+):
+    app_id, client_id = resolve_context(request, x_app_id, x_client_id)
+    if app_id and client_id:
+        validate_permission(db, user, app_id, client_id)
+
+    db_product = Product(**product.dict())
+    db.add(db_product)
+    db.commit()
+    db.refresh(db_product)
+
+    # Agregar nombre de categoría
+    category_name = db_product.category.name if db_product.category else None
+    product_dict = {**db_product.__dict__, "category_name": category_name}
+
+    return product_dict
+
+# VENTAS
+@app.post("/api/sales", response_model=SaleResponse)
+def create_sale(
+    sale_data: SaleCreate,
+    request: Request,
+    user: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+    x_app_id: int | None = Header(alias="X-App-Id", default=None),
+    x_client_id: int | None = Header(alias="X-Client-Id", default=None),
+):
+    app_id, client_id = resolve_context(request, x_app_id, x_client_id)
+    if app_id and client_id:
+        validate_permission(db, user, app_id, client_id)
+
+    # Calcular totales
+    total_amount = 0.0
+    sale_items = []
+
+    for item in sale_data.items:
+        product = db.query(Product).filter(Product.id == item.product_id).first()
+        if not product:
+            raise HTTPException(status_code=404, detail=f"Producto {item.product_id} no encontrado")
+
+        if product.stock_quantity < item.quantity:
+            raise HTTPException(status_code=400, detail=f"Stock insuficiente para {product.name}")
+
+        item_total = product.price * item.quantity
+        total_amount += item_total
+
+        sale_items.append({
+            "product_id": item.product_id,
+            "quantity": item.quantity,
+            "unit_price": product.price,
+            "total_price": item_total,
+        })
+
+        # Reducir stock
+        product.stock_quantity -= item.quantity
+
+    # Crear venta
+    db_sale = Sale(
+        total_amount=total_amount,
+        payment_method=sale_data.payment_method,
+        notes=sale_data.notes,
+        items=[SaleItem(**item) for item in sale_items]
+    )
+
+    db.add(db_sale)
+    db.commit()
+    db.refresh(db_sale)
+
+    # Preparar respuesta
+    items_response = []
+    for item in db_sale.items:
+        items_response.append({
+            "id": item.id,
+            "product_id": item.product_id,
+            "product_name": item.product.name,
+            "quantity": item.quantity,
+            "unit_price": item.unit_price,
+            "total_price": item.total_price,
+        })
+
+    return {
+        **db_sale.__dict__,
+        "items": items_response
+    }
+
+@app.get("/api/sales", response_model=List[SaleResponse])
+def get_sales(
+    request: Request,
+    limit: int = 50,
+    offset: int = 0,
+    user: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+    x_app_id: int | None = Header(alias="X-App-Id", default=None),
+    x_client_id: int | None = Header(alias="X-Client-Id", default=None),
+):
+    app_id, client_id = resolve_context(request, x_app_id, x_client_id)
+    if app_id and client_id:
+        validate_permission(db, user, app_id, client_id)
+
+    sales = db.query(Sale).order_by(Sale.created_at.desc()).limit(limit).offset(offset).all()
+
+    result = []
+    for sale in sales:
+        items_response = []
+        for item in sale.items:
+            items_response.append({
+                "id": item.id,
+                "product_id": item.product_id,
+                "product_name": item.product.name,
+                "quantity": item.quantity,
+                "unit_price": item.unit_price,
+                "total_price": item.total_price,
+            })
+
+        result.append({
+            **sale.__dict__,
+            "items": items_response
+        })
+
+    return result
+
+# INTERFAZ DEL POS
+@app.get("/pos", response_class=HTMLResponse)
+def pos_interface(
+    request: Request,
+    user: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+    x_app_id: int | None = Header(alias="X-App-Id", default=None),
+    x_client_id: int | None = Header(alias="X-Client-Id", default=None),
+):
+    app_id, client_id = resolve_context(request, x_app_id, x_client_id)
+    if app_id and client_id:
+        validate_permission(db, user, app_id, client_id)
+
+    html_content = """
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RodelSoft POS - Punto de Venta</title>
+    <style>
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+        }}
+
+        :root {{
+            --primary: #003366;
+            --secondary: #0066FF;
+            --accent: #00A8E8;
+            --success: #00C853;
+            --warning: #FFC107;
+            --error: #F44336;
+            --light: #F5F7FA;
+            --border: #E0E6ED;
+            --text: #1A1A1A;
+            --text-light: #555555;
+        }}
+
+        body {{
+            background-color: var(--light);
+            color: var(--text);
+        }}
+
+        .header {{
+            background: var(--primary);
+            color: white;
+            padding: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }}
+
+        .logo {{
+            font-size: 1.5rem;
+            font-weight: bold;
+        }}
+
+        .user-info {{
+            font-size: 0.9rem;
+            opacity: 0.9;
+        }}
+
+        .container {{
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 1rem;
+            padding: 1rem;
+            height: calc(100vh - 80px);
+        }}
+
+        .products-section {{
+            background: white;
+            border-radius: 8px;
+            padding: 1rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }}
+
+        .categories {{
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }}
+
+        .category-btn {{
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 20px;
+            background: var(--light);
+            color: var(--primary);
+            cursor: pointer;
+            transition: all 0.3s;
+        }}
+
+        .category-btn.active {{
+            background: var(--secondary);
+            color: white;
+        }}
+
+        .products-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 1rem;
+            max-height: 60vh;
+            overflow-y: auto;
+        }}
+
+        .product-card {{
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+        }}
+
+        .product-card:hover {{
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            transform: translateY(-2px);
+        }}
+
+        .product-name {{
+            font-weight: bold;
+            margin-bottom: 0.5rem;
+        }}
+
+        .product-price {{
+            color: var(--secondary);
+            font-size: 1.1rem;
+            font-weight: bold;
+        }}
+
+        .cart-section {{
+            background: white;
+            border-radius: 8px;
+            padding: 1rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            display: flex;
+            flex-direction: column;
+        }}
+
+        .cart-header {{
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid var(--primary);
+        }}
+
+        .cart-items {{
+            flex: 1;
+            overflow-y: auto;
+            margin-bottom: 1rem;
+        }}
+
+        .cart-item {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid var(--border);
+        }}
+
+        .cart-total {{
+            background: var(--primary);
+            color: white;
+            padding: 1rem;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 1.2rem;
+            font-weight: bold;
+        }}
+
+        .btn {{
+            padding: 0.75rem 1rem;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+        }}
+
+        .btn-primary {{
+            background: var(--secondary);
+            color: white;
+        }}
+
+        .btn-primary:hover {{
+            background: var(--primary);
+        }}
+
+        .btn-success {{
+            background: var(--success);
+            color: white;
+        }}
+
+        .btn-success:hover {{
+            background: #2E7D32;
+        }}
+
+        .quantity-controls {{
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }}
+
+        .quantity-btn {{
+            width: 30px;
+            height: 30px;
+            border: 1px solid var(--border);
+            background: white;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }}
+
+        .search-bar {{
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            margin-bottom: 1rem;
+        }}
+
+        @media (max-width: 768px) {{
+            .container {{
+                grid-template-columns: 1fr;
+                height: auto;
+            }}
+
+            .products-grid {{
+                grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            }}
+        }}
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="logo">🛒 RodelSoft</div>
+        <div class="app-info">
+            <div class="app-title">{client_name}</div>
+            <div class="app-subtitle">Punto de Venta</div>
+        </div>
+        <div class="user-menu">
+            <button id="userMenuBtn">👤 {user} ▾</button>
+            <div id="userDropdown" class="user-dropdown">
+                <button id="logoutBtn" class="user-dropdown-item">Cerrar sesión</button>
+                <button id="appsMenuBtn" class="user-dropdown-item">Volver a apps</button>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="products-section">
+            <input type="text" class="search-bar" placeholder="Buscar productos..." id="searchInput">
+
+            <div class="categories" id="categoriesContainer">
+                <!-- Categorías se cargarán aquí -->
+            </div>
+
+            <div class="products-grid" id="productsGrid">
+                <!-- Productos se cargarán aquí -->
+            </div>
+        </div>
+
+        <div class="cart-section">
+            <div class="cart-header">
+                <h3>Carrito de Compras</h3>
+            </div>
+
+            <div class="cart-items" id="cartItems">
+                <!-- Items del carrito -->
+            </div>
+
+            <div class="cart-total" id="cartTotal">
+                Total: $0.00
+            </div>
+
+            <button class="btn btn-success" id="checkoutBtn" style="margin-top: 1rem;">
+                💳 Procesar Pago
+            </button>
+        </div>
+    </div>
+
+    <script>
+        let categories = [];
+        let products = [];
+        let cart = {{}};
+
+        // Cargar datos iniciales
+        async function loadData() {{
+            try {{
+                const [categoriesRes, productsRes] = await Promise.all([
+                    fetch('/api/categories'),
+                    fetch('/api/products')
+                ]);
+
+                categories = await categoriesRes.json();
+                products = await productsRes.json();
+
+                renderCategories();
+                renderProducts();
+            }} catch (error) {{
+                console.error('Error cargando datos:', error);
+            }}
+        }}
+
+        // Renderizar categorías
+        function renderCategories() {{
+            const container = document.getElementById('categoriesContainer');
+            container.innerHTML = '<button class="category-btn active" data-category="all">Todas</button>';
+
+            categories.forEach(category => {{
+                const btn = document.createElement('button');
+                btn.className = 'category-btn';
+                btn.textContent = category.name;
+                btn.dataset.category = category.id;
+                btn.onclick = () => filterByCategory(category.id);
+                container.appendChild(btn);
+            }});
+        }}
+
+        // Renderizar productos
+        function renderProducts(filteredProducts = products) {{
+            const grid = document.getElementById('productsGrid');
+            grid.innerHTML = '';
+
+            filteredProducts.forEach(product => {{
+                const card = document.createElement('div');
+                card.className = 'product-card';
+                card.onclick = () => addToCart(product.id);
+
+                card.innerHTML = `
+                    <div class="product-name">${{product.name}}</div>
+                    <div class="product-price">$${{product.price.toFixed(2)}}</div>
+                `;
+
+                grid.appendChild(card);
+            }});
+        }}
+
+        // Filtrar por categoría
+        function filterByCategory(categoryId) {{
+            document.querySelectorAll('.category-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+
+            if (categoryId === 'all') {{
+                renderProducts();
+            }} else {{
+                const filtered = products.filter(p => p.category_id == categoryId);
+                renderProducts(filtered);
+            }}
+        }}
+
+        // Agregar al carrito
+        function addToCart(productId) {{
+            const product = products.find(p => p.id == productId);
+            if (!product) return;
+
+            if (cart[productId]) {{
+                cart[productId].quantity += 1;
+            }} else {{
+                cart[productId] = {{
+                    ...product,
+                    quantity: 1
+                }};
+            }}
+
+            renderCart();
+        }}
+
+        // Renderizar carrito
+        function renderCart() {{
+            const container = document.getElementById('cartItems');
+            const totalEl = document.getElementById('cartTotal');
+
+            container.innerHTML = '';
+            let total = 0;
+
+            Object.values(cart).forEach(item => {{
+                const itemTotal = item.price * item.quantity;
+                total += itemTotal;
+
+                const itemEl = document.createElement('div');
+                itemEl.className = 'cart-item';
+                itemEl.innerHTML = `
+                    <div>
+                        <div style="font-weight: bold;">${{item.name}}</div>
+                        <div style="color: var(--text-light); font-size: 0.9rem;">$${{item.price.toFixed(2)}} c/u</div>
+                    </div>
+                    <div class="quantity-controls">
+                        <button class="quantity-btn" onclick="updateQuantity(${{item.id}}, ${{item.quantity - 1}})">-</button>
+                        <span>${{item.quantity}}</span>
+                        <button class="quantity-btn" onclick="updateQuantity(${{item.id}}, ${{item.quantity + 1}})">+</button>
+                    </div>
+                    <div style="font-weight: bold;">$${{itemTotal.toFixed(2)}}</div>
+                `;
+
+                container.appendChild(itemEl);
+            }});
+
+            totalEl.textContent = `Total: $${{total.toFixed(2)}}`;
+        }}
+
+        // Actualizar cantidad
+        function updateQuantity(productId, newQuantity) {{
+            if (newQuantity <= 0) {{
+                delete cart[productId];
+            }} else {{
+                cart[productId].quantity = newQuantity;
+            }}
+            renderCart();
+        }}
+
+        // Procesar pago
+        async function checkout() {{
+            if (Object.keys(cart).length === 0) {{
+                alert('El carrito está vacío');
+                return;
+            }}
+
+            const items = Object.values(cart).map(item => ({{
+                product_id: item.id,
+                quantity: item.quantity
+            }}));
+
+            try {{
+                const response = await fetch('/api/sales', {{
+                    method: 'POST',
+                    headers: {{
+                        'Content-Type': 'application/json',
+                    }},
+                    body: JSON.stringify({{
+                        items: items,
+                        payment_method: 'cash'
+                    }})
+                }});
+
+                if (response.ok) {{
+                    alert('Venta procesada exitosamente!');
+                    cart = {{}};
+                    renderCart();
+                    loadData(); // Recargar productos para actualizar stock
+                }} else {{
+                    const error = await response.json();
+                    alert('Error: ' + error.detail);
+                }}
+            }} catch (error) {{
+                console.error('Error procesando venta:', error);
+                alert('Error procesando la venta');
+            }}
+        }}
+
+        // Búsqueda
+        document.getElementById('searchInput').addEventListener('input', function(e) {{
+            const searchTerm = e.target.value.toLowerCase();
+            const filtered = products.filter(p =>
+                p.name.toLowerCase().includes(searchTerm)
+            );
+            renderProducts(filtered);
+        }});
+
+        // Event listeners
+        document.getElementById('checkoutBtn').addEventListener('click', checkout);
+
+        // Cargar datos al inicio
+        loadData();
+    </script>
+</body>
+</html>
+    """
+
+    html_content = html_content.replace("{client_name}", client_name).replace("{app_name}", app_name).replace("{user}", user)
+    html_content = html_content.replace("{{", "{").replace("}}", "}")
+    return HTMLResponse(content=html_content)
+
+# Crear tablas en la base de datos
+@app.on_event("startup")
+def create_tables():
+    Base.metadata.create_all(bind=engine)
+
+# Endpoint para inicializar datos de ejemplo
+@app.post("/api/init-sample-data")
+def init_sample_data(
+    request: Request,
+    user: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+    x_app_id: int | None = Header(alias="X-App-Id", default=None),
+    x_client_id: int | None = Header(alias="X-Client-Id", default=None),
+):
+    app_id, client_id = resolve_context(request, x_app_id, x_client_id)
+    if app_id and client_id:
+        validate_permission(db, user, app_id, client_id)
+
+    try:
+        # Verificar si ya hay datos
+        existing_categories = db.query(Category).count()
+        if existing_categories > 0:
+            return {"message": "Los datos de ejemplo ya están inicializados", "categories": existing_categories}
+
+        # Crear categorías
+        categories_data = [
+            {"name": "Bebidas", "description": "Refrescos, jugos y bebidas", "color": "#00A8E8"},
+            {"name": "Snacks", "description": "Botanas y aperitivos", "color": "#FFC107"},
+            {"name": "Lácteos", "description": "Leche, queso y productos lácteos", "color": "#00C853"},
+            {"name": "Panadería", "description": "Pan, pasteles y productos de panadería", "color": "#F44336"},
+            {"name": "Limpieza", "description": "Productos de limpieza y hogar", "color": "#9C27B0"},
+        ]
+
+        categories = []
+        for cat_data in categories_data:
+            category = Category(**cat_data)
+            db.add(category)
+            categories.append(category)
+
+        db.commit()
+
+        # Crear productos
+        products_data = [
+            # Bebidas
+            {"name": "Coca Cola 600ml", "price": 15.50, "cost": 12.00, "category_id": categories[0].id, "stock_quantity": 50, "sku": "BEV001"},
+            {"name": "Jugo de Naranja 1L", "price": 25.00, "cost": 18.00, "category_id": categories[0].id, "stock_quantity": 30, "sku": "BEV002"},
+            {"name": "Agua Mineral 500ml", "price": 10.00, "cost": 7.00, "category_id": categories[0].id, "stock_quantity": 100, "sku": "BEV003"},
+
+            # Snacks
+            {"name": "Papas Sabritas 45g", "price": 12.50, "cost": 9.00, "category_id": categories[1].id, "stock_quantity": 80, "sku": "SNK001"},
+            {"name": "Galletas Oreo 154g", "price": 18.00, "cost": 13.00, "category_id": categories[1].id, "stock_quantity": 40, "sku": "SNK002"},
+            {"name": "Chocolate Hershey's 43g", "price": 8.50, "cost": 6.00, "category_id": categories[1].id, "stock_quantity": 60, "sku": "SNK003"},
+
+            # Lácteos
+            {"name": "Leche Lala 1L", "price": 22.00, "cost": 16.00, "category_id": categories[2].id, "stock_quantity": 25, "sku": "DAI001"},
+            {"name": "Queso Panela 500g", "price": 45.00, "cost": 35.00, "category_id": categories[2].id, "stock_quantity": 15, "sku": "DAI002"},
+            {"name": "Yogurt Danone 1kg", "price": 28.00, "cost": 20.00, "category_id": categories[2].id, "stock_quantity": 20, "sku": "DAI003"},
+
+            # Panadería
+            {"name": "Pan Blanco Bimbo", "price": 35.00, "cost": 25.00, "category_id": categories[3].id, "stock_quantity": 12, "sku": "BAK001"},
+            {"name": "Pastel de Chocolate", "price": 85.00, "cost": 60.00, "category_id": categories[3].id, "stock_quantity": 5, "sku": "BAK002"},
+            {"name": "Conchas Variadas 6pzs", "price": 42.00, "cost": 30.00, "category_id": categories[3].id, "stock_quantity": 8, "sku": "BAK003"},
+
+            # Limpieza
+            {"name": "Jabón Zote 200g", "price": 16.50, "cost": 12.00, "category_id": categories[4].id, "stock_quantity": 35, "sku": "CLE001"},
+            {"name": "Detergente Ariel 500g", "price": 55.00, "cost": 40.00, "category_id": categories[4].id, "stock_quantity": 18, "sku": "CLE002"},
+            {"name": "Cloro Clorox 1L", "price": 15.00, "cost": 10.00, "category_id": categories[4].id, "stock_quantity": 22, "sku": "CLE003"},
+        ]
+
+        for prod_data in products_data:
+            product = Product(**prod_data)
+            db.add(product)
+
+        db.commit()
+
+        return {
+            "message": "Datos de ejemplo inicializados correctamente",
+            "categories_created": len(categories),
+            "products_created": len(products_data)
+        }
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error inicializando datos: {str(e)}")

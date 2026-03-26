@@ -1,7 +1,8 @@
 import os
 import time
-from sqlalchemy import create_engine, text
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy import create_engine, text, Column, Integer, String, Float, DateTime, ForeignKey, Boolean, Text
+from sqlalchemy.orm import sessionmaker, declarative_base, relationship
+from sqlalchemy.sql import func
 
 MYSQL_HOST = os.getenv("MYSQL_HOST", "mysql")
 MYSQL_PORT = int(os.getenv("MYSQL_PORT", "3306"))
@@ -50,3 +51,68 @@ def get_db():
         yield db
     finally:
         db.close()
+
+# Modelos para el Punto de Venta
+
+class Category(Base):
+    __tablename__ = "pos_categories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)
+    description = Column(Text, nullable=True)
+    color = Column(String(7), default="#0066FF")  # Color hex para UI
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    products = relationship("Product", back_populates="category")
+
+class Product(Base):
+    __tablename__ = "pos_products"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    price = Column(Float, nullable=False)
+    cost = Column(Float, default=0.0)
+    sku = Column(String(50), unique=True, nullable=True)
+    barcode = Column(String(50), unique=True, nullable=True)
+    category_id = Column(Integer, ForeignKey("pos_categories.id"), nullable=True)
+    stock_quantity = Column(Integer, default=0)
+    min_stock = Column(Integer, default=0)
+    is_active = Column(Boolean, default=True)
+    image_url = Column(String(500), nullable=True)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    category = relationship("Category", back_populates="products")
+    sale_items = relationship("SaleItem", back_populates="product")
+
+class Sale(Base):
+    __tablename__ = "pos_sales"
+
+    id = Column(Integer, primary_key=True, index=True)
+    total_amount = Column(Float, nullable=False)
+    tax_amount = Column(Float, default=0.0)
+    discount_amount = Column(Float, default=0.0)
+    payment_method = Column(String(50), default="cash")  # cash, card, transfer
+    status = Column(String(20), default="completed")  # pending, completed, cancelled
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    items = relationship("SaleItem", back_populates="sale", cascade="all, delete-orphan")
+
+class SaleItem(Base):
+    __tablename__ = "pos_sale_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    sale_id = Column(Integer, ForeignKey("pos_sales.id"), nullable=False)
+    product_id = Column(Integer, ForeignKey("pos_products.id"), nullable=False)
+    quantity = Column(Integer, nullable=False)
+    unit_price = Column(Float, nullable=False)
+    total_price = Column(Float, nullable=False)
+    created_at = Column(DateTime, default=func.now())
+
+    sale = relationship("Sale", back_populates="items")
+    product = relationship("Product", back_populates="sale_items")

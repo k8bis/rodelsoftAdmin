@@ -19,7 +19,7 @@ services:
       - ./database/10-schema.sql:/docker-entrypoint-initdb.d/10-schema.sql
       - ./database/20-seed.sql:/docker-entrypoint-initdb.d/20-seed.sql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-rootpass}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpass"]
       interval: 5s
       timeout: 5s
       retries: 20

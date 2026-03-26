@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Debug Header</title>
+
+  <style>
+    :root {
+      --primary: #003366;
+      --secondary: #0066ff;
+      --light: #f5f7fa;
+      --text: #1a1a1a;
+    }
+
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: var(--light);
+      color: var(--text);
+    }
+
+    .app-header {
+      background: var(--primary);
+      color: white;
+      padding: 18px 24px;
+    }
+
+    .header-content {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .logo-section {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex: 1 1 auto;
+      min-width: 0;
+      white-space: nowrap;
+    }
+
+    .logo-section .title {
+      font-size: 1.8rem;
+      font-weight: bold;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .user-info {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: auto;
+      flex: 0 0 auto;
+    }
+
+    .user-info span {
+      font-size: 0.95rem;
+      font-weight: 600;
+    }
+
+    .debug-output {
+      padding: 12px;
+      border-top: 1px solid #ddd;
+      background: white;
+      max-width: 1200px;
+      margin: 12px auto;
+      font-size: 0.9rem;
+    }
+
+    .narrow {
+      width: 500px;
+      margin: 0 auto;
+      border: 1px dashed #888;
+      padding: 8px;
+      background: #fffbe8;
+    }
+  </style>
+</head>
+<body>
+
+  <header class="app-header">
+    <div class="header-content">
+      <div class="logo-section">
+        <img src="https://via.placeholder.com/30/ffffff/003366?text=R" alt="logo" />
+        <div class="title">Portal RodelSoft</div>
+      </div>
+
+      <div class="user-info">
+        <span>👤 admin</span>
+      </div>
+    </div>
+  </header>
+
+  <section class="debug-output">
+    <p><strong>Instrucciones:</strong> reduce el ancho de la ventana en "responsive" (DevTools) y prueba. El usuario debe mantenerse en extremo derecho.</p>
+    <p>Puedes cambiar en CSS `.header-content` entre <code>justify-content: space-between</code> y <code>flex-start</code> para ver efecto.</p>
+  </section>
+
+  <section class="narrow">
+    <p>Simulación área reducida (500px de ancho)</p>
+    <div class="header-content">
+      <div class="logo-section">
+        <img src="https://via.placeholder.com/30/ffffff/003366?text=R" alt="logo" />
+        <div class="title">Portal RodelSoft (texto largo para fuerza overflow)</div>
+      </div>
+      <div class="user-info"><span>👤 admin</span></div>
+    </div>
+  </section>
+
+</body>
+</html>
