@@ -1,56 +1,82 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>__APP_NAME__ - __CLIENT_NAME__</title>
-    <link rel="stylesheet" href="/static/pos.css">
-
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RodelSoft POS - __APP_NAME__</title>
+  <link rel="stylesheet" href="./static/pos.css" />
 </head>
 <body>
-    <header class="header">
-        <div class="logo">🛒 RodelSoft</div>
-        <div class="app-info">
-            <div class="app-title">__CLIENT_NAME__</div>
-            <div class="app-subtitle">Punto de Venta</div>
+  <div class="pos-layout">
+
+    <!-- HEADER -->
+    <header class="pos-header">
+      <div class="brand-block">
+        <div class="brand-title">🛒 RodelSoft</div>
+      </div>
+      <div>
+        <div class="brand-subtitle">__CLIENT_NAME__</div>
+        <div class="brand-app">__APP_NAME__</div>
+      </div>
+      <div class="user-block">
+        <button id="userMenuBtn" class="user-btn">👤 __USER__</button>
+        <div id="userDropdown" class="user-dropdown">
+          <button id="appsMenuBtn" type="button">Volver a apps</button>
+          <button id="logoutBtn" type="button">Cerrar sesión</button>
         </div>
-        <div class="user-menu">
-            <button id="userMenuBtn">👤 __USER__ ▾</button>
-            <div id="userDropdown" class="user-dropdown">
-                <button id="logoutBtn" class="user-dropdown-item">Cerrar sesión</button>
-                <button id="appsMenuBtn" class="user-dropdown-item">Volver a apps</button>
-            </div>
-        </div>
+      </div>
     </header>
 
-    <div class="container">
-        <div class="products-section">
-            <div class="section-header">
-                <h3 class="section-title">Catálogo de Productos</h3>
-                <button class="refresh-btn" id="refreshBtn" title="Actualizar catálogo">
-                    🔄 Refrescar
-                </button>
-            </div>
+    <!-- MAIN -->
+    <main class="pos-main">
 
-            <input type="text" class="search-bar" placeholder="Buscar productos..." id="searchInput">
+      <!-- PANEL IZQUIERDO -->
+      <section class="catalog-panel">
+        <div class="section-title">Catálogo de Productos</div>
 
-            <div class="categories" id="categoriesContainer"></div>
-
-            <div class="products-grid" id="productsGrid"></div>
+        <div class="toolbar">
+          <button id="refreshBtn" class="action-btn">🔄 Refrescar</button>
+          <input
+            type="text"
+            id="searchInput"
+            class="search-input"
+            placeholder="Buscar productos..."
+          />
         </div>
 
-        <div class="cart-section">
-            <div class="cart-header">
-                <h3>Carrito de Compras</h3>
-            </div>
+        <div id="categoriesContainer" class="categories-container"></div>
 
-            <div class="cart-items" id="cartItems"></div>
-            <div class="cart-total" id="cartTotal">Total: $0.00</div>
-            <button class="btn btn-success" id="checkoutBtn" style="margin-top: 1rem;">💳 Procesar Pago</button>
+        <div id="productsGrid" class="products-grid">
+          <div class="loading-box">Cargando catálogo...</div>
         </div>
-    </div>
+      </section>
 
-    <script src="/static/pos.js"></script>
+      <!-- PANEL DERECHO -->
+      <aside class="cart-panel">
+        <div class="section-title">Carrito de Compras</div>
 
+        <div id="cartItems" class="cart-items">
+          <div class="empty-cart">El carrito está vacío.</div>
+        </div>
+
+        <div id="cartTotal" class="cart-total">Total: $0.00</div>
+
+        <button id="checkoutBtn" class="checkout-btn">💳 Procesar Pago</button>
+      </aside>
+
+    </main>
+  </div>
+
+  <script>
+    window.POS_CONFIG = {
+      VERSION: "POS_TEMPLATE_V3_CATALOGO_OK",
+      APP_BASE_PATH: "__APP_BASE_PATH__",
+      APP_MENU_URL: "__APP_MENU_URL__",
+      LOGOUT_REDIRECT_URL: "__LOGOUT_REDIRECT_URL__"
+    };
+    console.log("POS_CONFIG =>", window.POS_CONFIG);
+  </script>
+
+  <script src="./static/pos.js?v=20260326-4"></script>
 </body>
 </html>

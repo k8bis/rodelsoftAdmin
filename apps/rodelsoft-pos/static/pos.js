@@ -1,199 +1,356 @@
+console.log("POS_JS_CHECKOUT_V2_API_BASE_FIX");
+
 let categories = [];
-        let products = [];
-        let cart = {};
+let products = [];
+let cart = {};
 
-        async function loadData() {
-            try {
-                const [categoriesRes, productsRes] = await Promise.all([
-                    fetch('/api/categories'),
-                    fetch('/api/products')
-                ]);
+const APP_BASE_PATH = window.POS_CONFIG?.APP_BASE_PATH || "/pos";
+const API_BASE = `${APP_BASE_PATH}/api`;
+const APP_MENU_URL = window.POS_CONFIG?.APP_MENU_URL || "/app1/my/apps";
+//const LOGOUT_REDIRECT_URL = window.POS_CONFIG?.LOGOUT_REDIRECT_URL || "/";
+const LOGOUT_REDIRECT_URL = "/app1/logout";
 
-                categories = await categoriesRes.json();
-                products = await productsRes.json();
+console.log("APP_BASE_PATH =", APP_BASE_PATH);
+console.log("API_BASE =", API_BASE);
+console.log("APP_MENU_URL =", APP_MENU_URL);
+console.log("LOGOUT_REDIRECT_URL =", LOGOUT_REDIRECT_URL);
 
-                renderCategories();
-                renderProducts();
-            } catch (error) {
-                console.error('Error cargando datos:', error);
-            }
+async function loadData() {
+    try {
+        console.log("Cargando categorías desde:", `${API_BASE}/categories`);
+        console.log("Cargando productos desde:", `${API_BASE}/products`);
+
+        const [categoriesRes, productsRes] = await Promise.all([
+            fetch(`${API_BASE}/categories`, { credentials: "same-origin" }),
+            fetch(`${API_BASE}/products`, { credentials: "same-origin" })
+        ]);
+
+        console.log("categoriesRes.status =", categoriesRes.status);
+        console.log("productsRes.status =", productsRes.status);
+
+        if (!categoriesRes.ok) {
+            const text = await categoriesRes.text();
+            console.error("Respuesta /categories:", text);
+            throw new Error(`Error cargando categorías: ${categoriesRes.status}`);
         }
 
-        function renderCategories() {
-            const container = document.getElementById('categoriesContainer');
-            container.innerHTML = '<button class="category-btn active" data-category="all">Todas</button>';
-
-            categories.forEach(category => {
-                const btn = document.createElement('button');
-                btn.className = 'category-btn';
-                btn.textContent = category.name;
-                btn.dataset.category = category.id;
-                btn.onclick = () => filterByCategory(category.id);
-                container.appendChild(btn);
-            });
+        if (!productsRes.ok) {
+            const text = await productsRes.text();
+            console.error("Respuesta /products:", text);
+            throw new Error(`Error cargando productos: ${productsRes.status}`);
         }
 
-        function renderProducts(filteredProducts = products) {
-            const grid = document.getElementById('productsGrid');
-            grid.innerHTML = '';
+        categories = await categoriesRes.json();
+        products = await productsRes.json();
 
-            filteredProducts.forEach(product => {
-                const card = document.createElement('div');
-                card.className = 'product-card';
-                card.onclick = () => addToCart(product.id);
+        console.log("Categorías cargadas:", categories);
+        console.log("Productos cargados:", products);
 
-                card.innerHTML = `
-                    <div class="product-name">${product.name}</div>
-                    <div class="product-price">$${product.price.toFixed(2)}</div>
-                `;
+        renderCategories();
+        renderProducts(products);
+        renderCart();
 
-                grid.appendChild(card);
-            });
+    } catch (error) {
+        console.error("Error cargando catálogo:", error);
+
+        const grid = document.getElementById("productsGrid");
+        if (grid) {
+            grid.innerHTML = `
+                <div class="error-box">
+                    No se pudo cargar el catálogo de productos.<br>
+                    Revisa consola y logs del contenedor.
+                </div>
+            `;
         }
+    }
+}
 
-        function filterByCategory(categoryId) {
-            document.querySelectorAll('.category-btn').forEach(btn => btn.classList.remove('active'));
-            event.target.classList.add('active');
+function renderCategories() {
+    const container = document.getElementById("categoriesContainer");
+    if (!container) {
+        console.warn("No existe #categoriesContainer");
+        return;
+    }
 
-            if (categoryId === 'all') {
-                renderProducts();
-            } else {
-                const filtered = products.filter(p => p.category_id == categoryId);
-                renderProducts(filtered);
-            }
+    container.innerHTML = "";
+
+    const allBtn = document.createElement("button");
+    allBtn.className = "category-btn active";
+    allBtn.textContent = "Todas";
+    allBtn.dataset.category = "all";
+    allBtn.addEventListener("click", () => filterByCategory("all", allBtn));
+    container.appendChild(allBtn);
+
+    categories.forEach(category => {
+        const btn = document.createElement("button");
+        btn.className = "category-btn";
+        btn.textContent = category.name;
+        btn.dataset.category = category.id;
+        btn.addEventListener("click", () => filterByCategory(category.id, btn));
+        container.appendChild(btn);
+    });
+}
+
+function renderProducts(filteredProducts = products) {
+    const grid = document.getElementById("productsGrid");
+    if (!grid) {
+        console.warn("No existe #productsGrid");
+        return;
+    }
+
+    grid.innerHTML = "";
+
+    if (!filteredProducts || filteredProducts.length === 0) {
+        grid.innerHTML = `<div class="loading-box">No hay productos disponibles.</div>`;
+        return;
+    }
+
+    filteredProducts.forEach(product => {
+        const card = document.createElement("div");
+        card.className = "product-card";
+        card.addEventListener("click", () => addToCart(product.id));
+
+        const stock = product.stock_quantity ?? 0;
+        const price = Number(product.price || 0);
+
+        card.innerHTML = `
+            <div class="product-name">${product.name}</div>
+            <div class="product-price">$${price.toFixed(2)}</div>
+            <div class="product-stock">Stock: ${stock}</div>
+        `;
+
+        grid.appendChild(card);
+    });
+}
+
+function filterByCategory(categoryId, clickedBtn = null) {
+    document.querySelectorAll(".category-btn").forEach(btn => btn.classList.remove("active"));
+
+    if (clickedBtn) {
+        clickedBtn.classList.add("active");
+    }
+
+    if (categoryId === "all") {
+        renderProducts(products);
+        return;
+    }
+
+    const filtered = products.filter(p => String(p.category_id) === String(categoryId));
+    renderProducts(filtered);
+}
+
+function addToCart(productId) {
+    const product = products.find(p => String(p.id) === String(productId));
+    if (!product) return;
+
+    if (cart[productId]) {
+        if (cart[productId].quantity + 1 > (product.stock_quantity ?? 0)) {
+            alert(`Stock insuficiente para ${product.name}`);
+            return;
         }
-
-        function addToCart(productId) {
-            const product = products.find(p => p.id == productId);
-            if (!product) return;
-
-            if (cart[productId]) {
-                cart[productId].quantity += 1;
-            } else {
-                cart[productId] = { ...product, quantity: 1 };
-            }
-
-            renderCart();
+        cart[productId].quantity += 1;
+    } else {
+        if ((product.stock_quantity ?? 0) < 1) {
+            alert(`Sin stock disponible para ${product.name}`);
+            return;
         }
+        cart[productId] = { ...product, quantity: 1 };
+    }
 
-        function renderCart() {
-            const container = document.getElementById('cartItems');
-            const totalEl = document.getElementById('cartTotal');
+    renderCart();
+}
 
-            container.innerHTML = '';
-            let total = 0;
+function renderCart() {
+    const container = document.getElementById("cartItems");
+    const totalEl = document.getElementById("cartTotal");
 
-            Object.values(cart).forEach(item => {
-                const itemTotal = item.price * item.quantity;
-                total += itemTotal;
+    if (!container || !totalEl) return;
 
-                const itemEl = document.createElement('div');
-                itemEl.className = 'cart-item';
-                itemEl.innerHTML = `
-                    <div>
-                        <div style="font-weight: bold;">${item.name}</div>
-                        <div style="color: var(--text-light); font-size: 0.9rem;">$${item.price.toFixed(2)} c/u</div>
-                    </div>
-                    <div class="quantity-controls">
-                        <button class="quantity-btn" onclick="updateQuantity(${item.id}, ${item.quantity - 1})">-</button>
-                        <span>${item.quantity}</span>
-                        <button class="quantity-btn" onclick="updateQuantity(${item.id}, ${item.quantity + 1})">+</button>
-                    </div>
-                    <div style="font-weight: bold;">$${itemTotal.toFixed(2)}</div>
-                `;
+    container.innerHTML = "";
+    let total = 0;
 
-                container.appendChild(itemEl);
-            });
+    const items = Object.values(cart);
 
-            totalEl.textContent = `Total: $${total.toFixed(2)}`;
+    if (items.length === 0) {
+        container.innerHTML = `<div class="empty-cart">El carrito está vacío.</div>`;
+        totalEl.textContent = "Total: $0.00";
+        return;
+    }
+
+    items.forEach(item => {
+        const itemTotal = Number(item.price) * item.quantity;
+        total += itemTotal;
+
+        const itemEl = document.createElement("div");
+        itemEl.className = "cart-item";
+        itemEl.innerHTML = `
+            <div>
+                <div style="font-weight: bold;">${item.name}</div>
+                <div style="color: #666; font-size: 0.9rem;">$${Number(item.price).toFixed(2)} c/u</div>
+            </div>
+            <div class="quantity-controls">
+                <button class="quantity-btn" onclick="updateQuantity(${item.id}, ${item.quantity - 1})">-</button>
+                <span>${item.quantity}</span>
+                <button class="quantity-btn" onclick="updateQuantity(${item.id}, ${item.quantity + 1})">+</button>
+            </div>
+            <div style="font-weight: bold;">$${itemTotal.toFixed(2)}</div>
+        `;
+        container.appendChild(itemEl);
+    });
+
+    totalEl.textContent = `Total: $${total.toFixed(2)}`;
+}
+
+function updateQuantity(productId, newQuantity) {
+    const product = products.find(p => String(p.id) === String(productId));
+    if (!product) return;
+
+    if (newQuantity <= 0) {
+        delete cart[productId];
+    } else {
+        if (newQuantity > (product.stock_quantity ?? 0)) {
+            alert(`Stock insuficiente para ${product.name}`);
+            return;
         }
-
-        function updateQuantity(productId, newQuantity) {
-            if (newQuantity <= 0) {
-                delete cart[productId];
-            } else {
-                cart[productId].quantity = newQuantity;
-            }
-            renderCart();
+        if (cart[productId]) {
+            cart[productId].quantity = newQuantity;
         }
+    }
 
-        async function checkout() {
-            if (Object.keys(cart).length === 0) {
-                alert('El carrito está vacío');
-                return;
-            }
+    renderCart();
+}
 
-            const items = Object.values(cart).map(item => ({
-                product_id: item.id,
-                quantity: item.quantity
-            }));
+async function checkout() {
+    const items = Object.values(cart);
 
-            try {
-                const response = await fetch('/api/sales', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        items: items,
-                        payment_method: 'cash'
-                    })
-                });
+    if (items.length === 0) {
+        alert("El carrito está vacío.");
+        return;
+    }
 
-                if (response.ok) {
-                    alert('Venta procesada exitosamente!');
-                    cart = {};
-                    renderCart();
-                    loadData();
-                } else {
-                    const error = await response.json();
-                    alert('Error: ' + error.detail);
-                }
-            } catch (error) {
-                console.error('Error procesando venta:', error);
-                alert('Error procesando la venta');
-            }
-        }
+    const payload = {
+        items: items.map(item => ({
+            product_id: item.id,
+            quantity: item.quantity
+        })),
+        payment_method: "cash",
+        notes: "Venta generada desde POS web"
+    };
 
-        document.getElementById('searchInput').addEventListener('input', function(e) {
-            const searchTerm = e.target.value.toLowerCase();
-            const filtered = products.filter(p => p.name.toLowerCase().includes(searchTerm));
-            renderProducts(filtered);
+    console.log("Checkout payload:", payload);
+
+    try {
+        const response = await fetch(`${API_BASE}/sales`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            credentials: "same-origin",
+            body: JSON.stringify(payload)
         });
 
-        document.getElementById('checkoutBtn').addEventListener('click', checkout);
-        document.getElementById('refreshBtn').addEventListener('click', function() {
-            loadData();
-        });
+        console.log("checkout response.status =", response.status);
 
-        const APP_MENU_URL = "__APP_MENU_URL__";
-        const LOGOUT_REDIRECT_URL = "__LOGOUT_REDIRECT_URL__";
+        const rawText = await response.text();
+        console.log("checkout raw response =", rawText);
 
-        const userMenuBtn = document.getElementById('userMenuBtn');
-        const userDropdown = document.getElementById('userDropdown');
-
-        if (userMenuBtn && userDropdown) {
-            userMenuBtn.addEventListener('click', function(event) {
-                event.stopPropagation();
-                userDropdown.classList.toggle('show');
-            });
-
-            window.addEventListener('click', function() {
-                userDropdown.classList.remove('show');
-            });
-
-            document.getElementById('logoutBtn').addEventListener('click', async function() {
-                try {
-                    await fetch('/logout', { method: 'POST' });
-                } catch (e) {
-                    console.error('Error en logout', e);
-                }
-                window.location.href = LOGOUT_REDIRECT_URL;
-            });
-
-            document.getElementById('appsMenuBtn').addEventListener('click', function() {
-                window.location.href = APP_MENU_URL;
-            });
+        let result;
+        try {
+            result = rawText ? JSON.parse(rawText) : {};
+        } catch {
+            result = { detail: rawText || "Respuesta no JSON del servidor" };
         }
 
-        loadData();
+        if (!response.ok) {
+            const msg = result.detail || `Error HTTP ${response.status}`;
+            alert(`No se pudo procesar la venta: ${msg}`);
+            return;
+        }
+
+        alert(`Venta procesada correctamente. Folio: ${result.id ?? "N/A"}`);
+
+        cart = {};
+        await loadData();
+
+    } catch (error) {
+        console.error("Error en checkout:", error);
+        alert("Error inesperado al procesar la venta.");
+    }
+}
+
+function setupSearch() {
+    const searchInput = document.getElementById("searchInput");
+    if (!searchInput) {
+        console.warn("No existe #searchInput");
+        return;
+    }
+
+    searchInput.addEventListener("input", function (e) {
+        const searchTerm = e.target.value.toLowerCase().trim();
+
+        if (!searchTerm) {
+            renderProducts(products);
+            return;
+        }
+
+        const filtered = products.filter(p =>
+            String(p.name || "").toLowerCase().includes(searchTerm)
+        );
+
+        renderProducts(filtered);
+    });
+}
+
+function setupUserMenu() {
+    const userMenuBtn = document.getElementById("userMenuBtn");
+    const userDropdown = document.getElementById("userDropdown");
+    const appsMenuBtn = document.getElementById("appsMenuBtn");
+    const logoutBtn = document.getElementById("logoutBtn");
+
+    if (!userMenuBtn || !userDropdown) return;
+
+    userMenuBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        userDropdown.classList.toggle("show");
+    });
+
+    document.addEventListener("click", () => {
+        userDropdown.classList.remove("show");
+    });
+
+    userDropdown.addEventListener("click", (e) => {
+        e.stopPropagation();
+    });
+
+    if (appsMenuBtn) {
+        appsMenuBtn.addEventListener("click", () => {
+            window.location.href = APP_MENU_URL;
+        });
+    }
+
+    if (logoutBtn) {
+        logoutBtn.addEventListener("click", () => {
+            window.location.href = LOGOUT_REDIRECT_URL;
+        });
+    }
+}
+
+function setupButtons() {
+    const refreshBtn = document.getElementById("refreshBtn");
+    const checkoutBtn = document.getElementById("checkoutBtn");
+
+    if (refreshBtn) {
+        refreshBtn.addEventListener("click", loadData);
+    }
+
+    if (checkoutBtn) {
+        checkoutBtn.addEventListener("click", checkout);
+    }
+}
+
+document.addEventListener("DOMContentLoaded", function () {
+    setupSearch();
+    setupButtons();
+    setupUserMenu();
+    loadData();
+});

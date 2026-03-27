@@ -4,6 +4,7 @@ import time
 import jwt
 from datetime import datetime, timedelta
 from fastapi import FastAPI, Depends, HTTPException, Header, Response, Request
+from fastapi.responses import RedirectResponse  
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -187,13 +188,23 @@ def validate(request: Request, authorization: str | None = Header(default=None))
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Token inválido")
 
-@app.post("/logout")
-def logout(response: Response):
+@app.api_route("/logout", methods=["GET", "POST"])
+def logout():
     """
-    Elimina la cookie JWT para cerrar sesión.
+    Cierra sesión real:
+    - elimina cookie JWT
+    - redirige al login del portal (/)
     """
-    response.delete_cookie("jwt", path="/")
-    return {"status": "bye"}
+    response = RedirectResponse(url="/", status_code=302)
+
+    response.delete_cookie(
+        key="jwt",
+        path="/",
+        httponly=True,
+        samesite="lax"
+    )
+
+    return response
 
 @app.get("/me")
 def get_me(

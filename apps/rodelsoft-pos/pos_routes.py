@@ -14,31 +14,24 @@ from schemas import (
     ProductCreate,
     ProductResponse,
     SaleCreate,
-    SaleItemCreate,
-    SaleItemResponse,
     SaleResponse,
 )
 
 router = APIRouter()
 
-
-@router.get("/health")
-def health(db: Session = Depends(get_db)):
-    try:
-        now = db.execute(text("SELECT NOW()")).fetchone()[0]
-        return {"status": "ok", "db_time": str(now)}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"DB error: {e}")
+# =========================
+# Configuración base de rutas
+# =========================
+APP_BASE_PATH = os.getenv("APP_BASE_PATH", "/pos")
 
 
-@router.get("/", response_class=HTMLResponse)
-def root(
+def render_pos_html(
     request: Request,
-    user: str = Depends(verify_token),
-    db: Session = Depends(get_db),
-    x_app_id: int | None = Header(alias="X-App-Id", default=None),
-    x_client_id: int | None = Header(alias="X-Client-Id", default=None),
-):
+    user: str,
+    db: Session,
+    x_app_id: int | None,
+    x_client_id: int | None,
+) -> HTMLResponse:
     app_id, client_id = resolve_context(request, x_app_id, x_client_id)
 
     if not app_id or not client_id:
@@ -64,31 +57,105 @@ def root(
 
     app_name = app_info.app if app_info else "POS"
     client_name = app_info.client_name if app_info else "Cliente"
-    app_menu_url = os.getenv("APP_MENU_URL", "/")
+
+    # Si no vienen por env, usamos defaults sanos
+    app_menu_url = os.getenv("APP_MENU_URL", "/app1/my/apps")
     logout_redirect_url = os.getenv("LOGOUT_REDIRECT_URL", "/")
 
-    template_path = Path(__file__).resolve().parent / 'templates' / 'pos_template.html'
+    template_path = Path(__file__).resolve().parent / "templates" / "pos_template.html"
     if not template_path.exists():
-        raise HTTPException(status_code=500, detail='Template de POS no encontrado')
+        raise HTTPException(status_code=500, detail="Template de POS no encontrado")
 
-    html_content = template_path.read_text(encoding='utf-8')
-    html_content = html_content.replace('__CLIENT_NAME__', client_name)         .replace('__APP_NAME__', app_name)         .replace('__USER__', user)         .replace('__APP_MENU_URL__', app_menu_url)         .replace('__LOGOUT_REDIRECT_URL__', logout_redirect_url)
+    html_content = template_path.read_text(encoding="utf-8")
+
+    html_content = html_content.replace("__APP_NAME__", app_name)
+    html_content = html_content.replace("__CLIENT_NAME__", client_name)
+    html_content = html_content.replace("__USER__", user)
+    html_content = html_content.replace("__APP_MENU_URL__", app_menu_url)
+    html_content = html_content.replace("__LOGOUT_REDIRECT_URL__", logout_redirect_url)
+    html_content = html_content.replace("__APP_BASE_PATH__", APP_BASE_PATH)
+
+    print("[POS] APP_BASE_PATH =", APP_BASE_PATH)
+    print("[POS] APP_MENU_URL =", app_menu_url)
+    print("[POS] LOGOUT_REDIRECT_URL =", logout_redirect_url)
+    print("[POS] HTML placeholders check =>",
+        "__APP_BASE_PATH__" in html_content,
+        "__APP_MENU_URL__" in html_content,
+        "__LOGOUT_REDIRECT_URL__" in html_content)
 
     return HTMLResponse(content=html_content)
 
 
+# =========================
+# Health
+# =========================
+@router.get("/health")
+def health(db: Session = Depends(get_db)):
+    try:
+        now = db.execute(text("SELECT NOW()")).fetchone()[0]
+        return {"status": "ok", "db_time": str(now)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"DB error: {e}")
+
+
+# =========================
+# UI principal (soporta / y /pos)
+# =========================
+@router.get("/", response_class=HTMLResponse)
+def root(
+    request: Request,
+    user: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+    x_app_id: int | None = Header(alias="X-App-Id", default=None),
+    x_client_id: int | None = Header(alias="X-Client-Id", default=None),
+):
+    return render_pos_html(request, user, db, x_app_id, x_client_id)
+
+
+@router.get("/pos", response_class=HTMLResponse)
+def pos_interface(
+    request: Request,
+    user: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+    x_app_id: int | None = Header(alias="X-App-Id", default=None),
+    x_client_id: int | None = Header(alias="X-Client-Id", default=None),
+):
+    return render_pos_html(request, user, db, x_app_id, x_client_id)
+
+
+# =========================
+# Logout (soporta /logout y /pos/logout)
+# =========================
 @router.post("/logout")
 def logout():
-    response = RedirectResponse(url=os.getenv("LOGOUT_REDIRECT_URL", "/login"))
+    response = RedirectResponse(url=os.getenv("LOGOUT_REDIRECT_URL", "/"), status_code=302)
     response.delete_cookie("jwt", path="/")
     return response
 
 
+@router.post("/pos/logout")
+def logout_pos():
+    response = RedirectResponse(url=os.getenv("LOGOUT_REDIRECT_URL", "/"), status_code=302)
+    response.delete_cookie("jwt", path="/")
+    return response
+
+
+# =========================
+# Apps menu (opcional)
+# =========================
 @router.get("/apps-menu")
 def apps_menu():
-    return RedirectResponse(url=os.getenv("APP_MENU_URL", "/"))
+    return RedirectResponse(url=os.getenv("APP_MENU_URL", "/app1/my/apps"), status_code=302)
 
 
+@router.get("/pos/apps-menu")
+def apps_menu_pos():
+    return RedirectResponse(url=os.getenv("APP_MENU_URL", "/app1/my/apps"), status_code=302)
+
+
+# =========================
+# Info / entry
+# =========================
 @router.get("/me")
 def me(
     request: Request,
@@ -131,7 +198,12 @@ def entry(
     }
 
 
+# =========================
+# API - categorías
+# Soporta /api/... y /pos/api/...
+# =========================
 @router.get("/api/categories", response_model=List[CategoryResponse])
+@router.get("/pos/api/categories", response_model=List[CategoryResponse])
 def get_categories(
     request: Request,
     user: str = Depends(verify_token),
@@ -147,6 +219,7 @@ def get_categories(
 
 
 @router.post("/api/categories", response_model=CategoryResponse)
+@router.post("/pos/api/categories", response_model=CategoryResponse)
 def create_category(
     category: CategoryCreate,
     request: Request,
@@ -166,7 +239,11 @@ def create_category(
     return db_category
 
 
+# =========================
+# API - productos
+# =========================
 @router.get("/api/products", response_model=List[ProductResponse])
+@router.get("/pos/api/products", response_model=List[ProductResponse])
 def get_products(
     request: Request,
     category_id: int | None = None,
@@ -195,6 +272,7 @@ def get_products(
 
 
 @router.post("/api/products", response_model=ProductResponse)
+@router.post("/pos/api/products", response_model=ProductResponse)
 def create_product(
     product: ProductCreate,
     request: Request,
@@ -216,7 +294,11 @@ def create_product(
     return {**db_product.__dict__, "category_name": category_name}
 
 
+# =========================
+# API - ventas
+# =========================
 @router.post("/api/sales", response_model=SaleResponse)
+@router.post("/pos/api/sales", response_model=SaleResponse)
 def create_sale(
     sale_data: SaleCreate,
     request: Request,
@@ -237,14 +319,17 @@ def create_sale(
             raise HTTPException(status_code=404, detail="Producto no encontrado")
         if product.stock_quantity < item.quantity:
             raise HTTPException(status_code=400, detail=f"Stock insuficiente para {product.name}")
+
         item_total = product.price * item.quantity
         total_amount += item_total
+
         sale_items.append({
             "product_id": item.product_id,
             "quantity": item.quantity,
             "unit_price": product.price,
             "total_price": item_total,
         })
+
         product.stock_quantity -= item.quantity
 
     db_sale = Sale(
@@ -276,6 +361,7 @@ def create_sale(
 
 
 @router.get("/api/sales", response_model=List[SaleResponse])
+@router.get("/pos/api/sales", response_model=List[SaleResponse])
 def get_sales(
     request: Request,
     limit: int = 50,
@@ -291,6 +377,7 @@ def get_sales(
 
     sales = db.query(Sale).order_by(Sale.created_at.desc()).limit(limit).offset(offset).all()
     result = []
+
     for sale in sales:
         items_response = []
         for item in sale.items:
@@ -311,25 +398,10 @@ def get_sales(
     return result
 
 
-@router.get("/pos", response_class=HTMLResponse)
-def pos_interface(
-    request: Request,
-    user: str = Depends(verify_token),
-    db: Session = Depends(get_db),
-    x_app_id: int | None = Header(alias="X-App-Id", default=None),
-    x_client_id: int | None = Header(alias="X-Client-Id", default=None),
-):
-    app_id, client_id = resolve_context(request, x_app_id, x_client_id)
-    if app_id and client_id:
-        validate_permission(db, user, app_id, client_id)
-
-    # Reutiliza la interfaz principal
-    return root(request, user, db, x_app_id, x_client_id)
-
-
+# =========================
+# Endpoint opcional
+# =========================
 @router.post("/api/init-sample-data")
-def init_sample_data(
-    db: Session = Depends(get_db),
-):
-    # esta ruta opcional de inicialización de ejemplo
+@router.post("/pos/api/init-sample-data")
+def init_sample_data(db: Session = Depends(get_db)):
     return {"status": "ok", "message": "Init data endpoint"}

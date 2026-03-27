@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
+from urllib.parse import urlencode
 
 # =========================================================
 # Configuración
@@ -190,23 +191,63 @@ def build_health_url(internal_url: str, health_path: str) -> str:
 
     return f"{internal}{path}"
 
-
-def build_final_url(public_url: str, entry_path: str, app_id: int, client_id: int) -> str:
+def build_final_url(request: Request, public_url: str, entry_path: str, app_id: int, client_id: int) -> str:
     """
-    URL final para el navegador.
-    100% dinámica por base de datos.
+    Construye la URL final para el navegador soportando:
+    - public_url relativo  -> usa host real de la petición (multi-dispositivo)
+    - public_url absoluto  -> lo usa tal cual
+    - entry_path           -> ruta interna inicial dentro de la app
+
+    Ejemplos:
+      public_url=/pos/                     entry_path=/           => http://HOST/pos/?app_id=3&client_id=4
+      public_url=/pos/                     entry_path=/dashboard  => http://HOST/pos/dashboard?app_id=3&client_id=4
+      public_url=http://192.168.1.120:8005 entry_path=/          => http://192.168.1.120:8005/?app_id=3&client_id=4
+      public_url=https://crm.local         entry_path=/workspace  => https://crm.local/workspace?app_id=5&client_id=2
     """
-    base = (public_url or "").rstrip("/")
-    path = (entry_path or "/").strip()
+    raw_public = (public_url or "").strip()
+    raw_entry = (entry_path or "/").strip()
 
-    if not path.startswith("/"):
-        path = "/" + path
+    # Normaliza entry_path
+    if not raw_entry.startswith("/"):
+        raw_entry = "/" + raw_entry
 
-    if path == "/":
-        return f"{base}/?app_id={app_id}&client_id={client_id}"
+    # Detecta host/scheme reales de la petición
+    forwarded_proto = request.headers.get("x-forwarded-proto")
+    scheme = forwarded_proto or request.url.scheme or "http"
+    host = request.headers.get("host")
 
-    return f"{base}{path}?app_id={app_id}&client_id={client_id}"
+    if not host:
+        raise HTTPException(status_code=500, detail="No se pudo resolver el host de la petición")
 
+    # Si public_url es relativo => construir base con el host real
+    if raw_public.startswith("/"):
+        base = raw_public.rstrip("/")
+        if base == "":
+            base = ""
+        base_url = f"{scheme}://{host}{base}"
+
+    # Si public_url es absoluto => usar tal cual
+    elif raw_public.startswith("http://") or raw_public.startswith("https://"):
+        base_url = raw_public.rstrip("/")
+
+    else:
+        raise HTTPException(
+            status_code=500,
+            detail="public_url inválido: debe iniciar con '/' o con 'http://'/'https://'",
+        )
+
+    # Construcción final evitando dobles slashes
+    if raw_entry == "/":
+        final_path = "/"
+    else:
+        final_path = raw_entry
+
+    query = urlencode({
+        "app_id": app_id,
+        "client_id": client_id,
+    })
+
+    return f"{base_url}{final_path}?{query}"
 
 def check_app_health(internal_url: str, health_path: str, timeout_seconds: int = 2) -> bool:
     """
@@ -293,7 +334,7 @@ def launch(request: Request, app_id: int, client_id: int):
             )
 
         # 5) URL final (100% dinámica por BD)
-        final_url = build_final_url(public_url, entry_path, app_id, client_id)
+        final_url = build_final_url(request, public_url, entry_path, app_id, client_id)
         print(f"[launch-service] Redirect final => {final_url}")
 
         # Por ahora launch_mode se conserva para futuro, pero el comportamiento actual
