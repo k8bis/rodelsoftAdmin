@@ -145,7 +145,7 @@ button:active:not(:disabled) {
 .app-card { background-color: white; border-radius: 12px; padding: 24px; box-shadow: 0 2px 8px rgba(0, 51, 102, 0.08); border: 1px solid var(--border); transition: all 0.3s ease; }
 .app-card:hover { box-shadow: 0 12px 24px rgba(0, 51, 102, 0.15); transform: translateY(-4px); }
 .app-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; gap: 12px; }
-.app-title { margin: 0; font-size: 18px; font-weight: bold; color: var(white); }
+.app-title { margin: 0; font-size: 18px; font-weight: bold; color: white; }
 .app-badge { background-color: var(--accent); color: white; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; white-space: nowrap; }
 .app-description { margin: 0 0 16px 0; font-size: 14px; color: var(--text-light); line-height: 1.5; }
 .app-metadata { background-color: var(--light); padding: 12px; border-radius: 8px; margin-bottom: 16px; font-size: 12px; }

@@ -7,6 +7,7 @@ export default function App() {
   const [authed, setAuthed] = useState(false);
   const [msg, setMsg] = useState("");
   const [loading, setLoading] = useState(false);
+  const [initializing, setInitializing] = useState(true);
   const [msgType, setMsgType] = useState("info"); // info, success, error, warning
 
   // Fuente maestra de apps + permisos desde App1
@@ -15,18 +16,72 @@ export default function App() {
   // selección por app -> cliente
   const [selectedClientByApp, setSelectedClientByApp] = useState({});
 
-    // Lee mensajes enviados por launch-service (?msg=...)
+  // Lee mensajes enviados por launch-service (?msg=...)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const incomingMsg = params.get("msg");
 
     if (incomingMsg) {
       setMsg(incomingMsg);
+      setMsgType("info");
 
       // limpia la URL para no dejar el mensaje pegado
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, []);
+
+  // 🔥 NUEVO: al cargar el portal, intenta restaurar sesión desde cookie
+  useEffect(() => {
+    restoreSession();
+  }, []);
+
+  const restoreSession = async () => {
+    setInitializing(true);
+
+    try {
+      const r = await fetch("/app1/my/apps", {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      });
+
+      if (!r.ok) {
+        // Si no hay sesión válida, simplemente mostramos login
+        setAuthed(false);
+        setRawApps([]);
+        return;
+      }
+
+      const data = await r.json();
+
+      setRawApps(Array.isArray(data) ? data : []);
+      setAuthed(true);
+
+      // Opcional: intentar obtener usuario real
+      try {
+        const me = await fetch("/app1/me", {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+        });
+
+        if (me.ok) {
+          const meData = await me.json();
+          if (meData?.username) {
+            setUser(meData.username);
+          }
+        }
+      } catch {
+        // Si falla /app1/me, no bloqueamos la UI
+      }
+    } catch (e) {
+      console.error("Error restaurando sesión:", e);
+      setAuthed(false);
+      setRawApps([]);
+    } finally {
+      setInitializing(false);
+    }
+  };
 
   const login = async () => {
     setMsg("");
@@ -48,10 +103,11 @@ export default function App() {
         return;
       }
 
-      setAuthed(true);
       setMsg("Sesión iniciada ✅");
       setMsgType("success");
-      fetchMyApps();
+
+      // 🔥 IMPORTANTE: después del login, restaurar sesión completa
+      await restoreSession();
     } catch (e) {
       setMsg(`Error de red: ${String(e)}`);
       setMsgType("error");
@@ -72,6 +128,8 @@ export default function App() {
     setAuthed(false);
     setRawApps([]);
     setSelectedClientByApp({});
+    setMsg("");
+    setMsgType("info");
   };
 
   const fetchMyApps = async () => {
@@ -79,7 +137,9 @@ export default function App() {
 
     try {
       const r = await fetch("/app1/my/apps", {
+        method: "GET",
         credentials: "include",
+        cache: "no-store",
       });
 
       if (!r.ok) {
@@ -87,15 +147,18 @@ export default function App() {
         setMsg(`/app1/my/apps falló (${r.status}): ${t}`);
         setMsgType("error");
         setRawApps([]);
+        setAuthed(false);
         return;
       }
 
       const data = await r.json();
       setRawApps(Array.isArray(data) ? data : []);
+      setAuthed(true);
     } catch (e) {
       setMsg(`Error /app1/my/apps: ${String(e)}`);
       setMsgType("error");
       setRawApps([]);
+      setAuthed(false);
     }
   };
 
@@ -117,12 +180,48 @@ export default function App() {
     const client_id = selectedClientByApp[app_id];
 
     if (!client_id) {
-      return setMsg(`Selecciona un cliente para app_id=${app_id}.`);
+      setMsg(`Selecciona un cliente para app_id=${app_id}.`);
+      setMsgType("warning");
+      return;
     }
 
     // FASE 2: usar launch-service
     window.location.href = `/launch?app_id=${app_id}&client_id=${client_id}`;
   };
+
+  // 🔥 NUEVO: mientras valida sesión, no mostrar login prematuramente
+  if (initializing) {
+    return (
+      <div className="app-container">
+        <header className="app-header">
+          <div className="logo-section">
+            <picture>
+              <source srcSet="/logos/rodelsoft-monogram-hex.svg" type="image/svg+xml" />
+              <img src="/logos/rodelsoft-monogram-hex.png" alt="RodelSoft" className="logo" />
+            </picture>
+            <h1 className="title">Portal RodelSoft</h1>
+          </div>
+          <div></div>
+          <div></div>
+        </header>
+
+        <main className="main-content">
+          <div className="login-container">
+            <div className="login-card">
+              <div className="login-header">
+                <h2 className="login-title">Cargando sesión...</h2>
+                <p className="login-subtitle">Validando acceso a tus aplicaciones</p>
+              </div>
+            </div>
+          </div>
+        </main>
+
+        <footer className="app-footer">
+          <p className="app-footer-text">© 2026 RodelSoft. Todos los derechos reservados.</p>
+        </footer>
+      </div>
+    );
+  }
 
   return (
     <div className="app-container">
@@ -221,7 +320,9 @@ export default function App() {
                     <div key={app.app_id} className="app-card">
                       <div className="app-header">
                         <h3 className="app-title">{app.app}</h3>
-                        <span className="app-badge">{app.clients?.length || 0} cliente{app.clients?.length !== 1 ? "s" : ""}</span>
+                        <span className="app-badge">
+                          {app.clients?.length || 0} cliente{app.clients?.length !== 1 ? "s" : ""}
+                        </span>
                       </div>
 
                       {app.description && (
@@ -272,4 +373,3 @@ export default function App() {
     </div>
   );
 }
-

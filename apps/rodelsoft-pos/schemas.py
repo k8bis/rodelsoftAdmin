@@ -60,6 +60,9 @@ class SaleItemResponse(BaseModel):
 
 class SaleResponse(BaseModel):
     id: int
+    client_id: Optional[int] = None
+    app_id: Optional[int] = None
+    created_by: Optional[str] = None
     total_amount: float
     tax_amount: float
     discount_amount: float

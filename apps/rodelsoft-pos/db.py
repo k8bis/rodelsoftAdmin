@@ -4,55 +4,102 @@ from sqlalchemy import create_engine, text, Column, Integer, String, Float, Date
 from sqlalchemy.orm import sessionmaker, declarative_base, relationship
 from sqlalchemy.sql import func
 
-MYSQL_HOST = os.getenv("MYSQL_HOST", "mysql")
-MYSQL_PORT = int(os.getenv("MYSQL_PORT", "3306"))
-MYSQL_USER = os.getenv("MYSQL_USER", "proyecto_user")
-MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "proyecto_pass")
-MYSQL_DATABASE = os.getenv("MYSQL_DATABASE", "proyecto_db")
+# =========================
+# Configuración DB de negocio (POS)
+# =========================
+POS_MYSQL_HOST = os.getenv("POS_MYSQL_HOST", "mysql")
+POS_MYSQL_PORT = int(os.getenv("POS_MYSQL_PORT", "3306"))
+POS_MYSQL_USER = os.getenv("POS_MYSQL_USER", "proyecto_user")
+POS_MYSQL_PASSWORD = os.getenv("POS_MYSQL_PASSWORD", "proyecto_pass")
+POS_MYSQL_DATABASE = os.getenv("POS_MYSQL_DATABASE", "pos_db")
 
-DATABASE_URL = (
-    f"mysql+pymysql://{MYSQL_USER}:{MYSQL_PASSWORD}"
-    f"@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DATABASE}"
+POS_DATABASE_URL = (
+    f"mysql+pymysql://{POS_MYSQL_USER}:{POS_MYSQL_PASSWORD}"
+    f"@{POS_MYSQL_HOST}:{POS_MYSQL_PORT}/{POS_MYSQL_DATABASE}"
+)
+
+# =========================
+# Configuración DB de control (Portal / IAM)
+# =========================
+CONTROL_MYSQL_HOST = os.getenv("CONTROL_MYSQL_HOST", "mysql")
+CONTROL_MYSQL_PORT = int(os.getenv("CONTROL_MYSQL_PORT", "3306"))
+CONTROL_MYSQL_USER = os.getenv("CONTROL_MYSQL_USER", "proyecto_user")
+CONTROL_MYSQL_PASSWORD = os.getenv("CONTROL_MYSQL_PASSWORD", "proyecto_pass")
+CONTROL_MYSQL_DATABASE = os.getenv("CONTROL_MYSQL_DATABASE", "proyecto_db")
+
+CONTROL_DATABASE_URL = (
+    f"mysql+pymysql://{CONTROL_MYSQL_USER}:{CONTROL_MYSQL_PASSWORD}"
+    f"@{CONTROL_MYSQL_HOST}:{CONTROL_MYSQL_PORT}/{CONTROL_MYSQL_DATABASE}"
 )
 
 MAX_RETRIES = int(os.getenv("DB_MAX_RETRIES", "30"))
 RETRY_DELAY = float(os.getenv("DB_RETRY_DELAY", "2"))
 
-engine = create_engine(
-    DATABASE_URL,
+# =========================
+# Engines
+# =========================
+pos_engine = create_engine(
+    POS_DATABASE_URL,
     pool_pre_ping=True,
     pool_recycle=1800,
     future=True,
 )
 
-def wait_for_db():
+control_engine = create_engine(
+    CONTROL_DATABASE_URL,
+    pool_pre_ping=True,
+    pool_recycle=1800,
+    future=True,
+)
+
+# Compatibilidad temporal con código existente
+engine = pos_engine
+
+def wait_for_db(engine_to_check, label: str):
     last_error = None
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            with engine.connect() as conn:
+            with engine_to_check.connect() as conn:
                 conn.execute(text("SELECT 1"))
-            print(f"[DB] Conexión OK en intento {attempt}")
+            print(f"[DB:{label}] Conexión OK en intento {attempt}")
             return
         except Exception as e:
             last_error = e
-            print(f"[DB] Intento {attempt}/{MAX_RETRIES} falló: {e}")
+            print(f"[DB:{label}] Intento {attempt}/{MAX_RETRIES} falló: {e}")
             time.sleep(RETRY_DELAY)
 
-    raise RuntimeError(f"No se pudo conectar a MySQL tras {MAX_RETRIES} intentos: {last_error}")
+    raise RuntimeError(f"No se pudo conectar a MySQL ({label}) tras {MAX_RETRIES} intentos: {last_error}")
 
-wait_for_db()
+# Esperar ambas conexiones
+wait_for_db(pos_engine, "POS")
+wait_for_db(control_engine, "CONTROL")
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine, future=True)
+PosSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=pos_engine, future=True)
+ControlSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=control_engine, future=True)
+
 Base = declarative_base()
 
-def get_db():
-    db = SessionLocal()
+def get_pos_db():
+    db = PosSessionLocal()
     try:
         yield db
     finally:
         db.close()
 
-# Modelos para el Punto de Venta
+# Compatibilidad temporal con imports existentes
+def get_db():
+    yield from get_pos_db()
+
+def get_control_db():
+    db = ControlSessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# =========================
+# Modelos para el Punto de Venta (viven en POS DB)
+# =========================
 
 class Category(Base):
     __tablename__ = "pos_categories"
@@ -92,6 +139,12 @@ class Sale(Base):
     __tablename__ = "pos_sales"
 
     id = Column(Integer, primary_key=True, index=True)
+
+    # Multi-tenant persistente
+    client_id = Column(Integer, nullable=True, index=True)
+    app_id = Column(Integer, nullable=True, index=True)
+    created_by = Column(String(100), nullable=True, index=True)
+
     total_amount = Column(Float, nullable=False)
     tax_amount = Column(Float, default=0.0)
     discount_amount = Column(Float, default=0.0)

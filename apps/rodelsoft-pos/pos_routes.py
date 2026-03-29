@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Request, HTTPException, Header
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from db import get_db, Category, Product, Sale, SaleItem
+from db import get_pos_db, get_control_db, Category, Product, Sale, SaleItem
 from auth import verify_token
 from permissions import resolve_context, validate_permission
 from schemas import (
@@ -25,10 +25,39 @@ router = APIRouter()
 APP_BASE_PATH = os.getenv("APP_BASE_PATH", "/pos")
 
 
+def get_user_or_redirect(
+    request: Request,
+    authorization: str | None = None,
+) -> str | None:
+    """
+    Validación browser-safe:
+    - Si el token es válido => devuelve username
+    - Si no existe / expiró / es inválido => devuelve None
+    """
+    token = None
+
+    # 1) Header Authorization (inyectado por Nginx)
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ")[1]
+
+    # 2) Fallback: cookie jwt
+    if not token:
+        token = request.cookies.get("jwt")
+
+    if not token:
+        return None
+
+    try:
+        user = verify_token(request, authorization)
+        return user
+    except HTTPException:
+        return None
+
+
 def render_pos_html(
     request: Request,
     user: str,
-    db: Session,
+    control_db: Session,
     x_app_id: int | None,
     x_client_id: int | None,
 ) -> HTMLResponse:
@@ -37,9 +66,9 @@ def render_pos_html(
     if not app_id or not client_id:
         raise HTTPException(status_code=400, detail="Faltan app_id o client_id")
 
-    validate_permission(db, user, app_id, client_id)
+    validate_permission(control_db, user, app_id, client_id)
 
-    app_info = db.execute(
+    app_info = control_db.execute(
         text("""
             SELECT a.name AS app,
                    c.name AS client_name
@@ -59,7 +88,7 @@ def render_pos_html(
     client_name = app_info.client_name if app_info else "Cliente"
 
     # Si no vienen por env, usamos defaults sanos
-    app_menu_url = os.getenv("APP_MENU_URL", "/app1/my/apps")
+    app_menu_url = os.getenv("APP_MENU_URL", "/")
     logout_redirect_url = os.getenv("LOGOUT_REDIRECT_URL", "/")
 
     template_path = Path(__file__).resolve().parent / "templates" / "pos_template.html"
@@ -83,14 +112,18 @@ def render_pos_html(
         "__APP_MENU_URL__" in html_content,
         "__LOGOUT_REDIRECT_URL__" in html_content)
 
-    return HTMLResponse(content=html_content)
+    response = HTMLResponse(content=html_content)
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 
 # =========================
 # Health
 # =========================
 @router.get("/health")
-def health(db: Session = Depends(get_db)):
+def health(db: Session = Depends(get_pos_db)):
     try:
         now = db.execute(text("SELECT NOW()")).fetchone()[0]
         return {"status": "ok", "db_time": str(now)}
@@ -100,27 +133,38 @@ def health(db: Session = Depends(get_db)):
 
 # =========================
 # UI principal (soporta / y /pos)
+# IMPORTANTE:
+# NO usar Depends(verify_token) aquí para evitar JSON {"detail":"No token"}
+# al navegar con botón Atrás del browser.
 # =========================
 @router.get("/", response_class=HTMLResponse)
 def root(
     request: Request,
-    user: str = Depends(verify_token),
-    db: Session = Depends(get_db),
+    control_db: Session = Depends(get_control_db),
+    authorization: str | None = Header(default=None),
     x_app_id: int | None = Header(alias="X-App-Id", default=None),
     x_client_id: int | None = Header(alias="X-Client-Id", default=None),
 ):
-    return render_pos_html(request, user, db, x_app_id, x_client_id)
+    user = get_user_or_redirect(request, authorization)
+    if not user:
+        return RedirectResponse(url="/", status_code=302)
+
+    return render_pos_html(request, user, control_db, x_app_id, x_client_id)
 
 
 @router.get("/pos", response_class=HTMLResponse)
 def pos_interface(
     request: Request,
-    user: str = Depends(verify_token),
-    db: Session = Depends(get_db),
+    control_db: Session = Depends(get_control_db),
+    authorization: str | None = Header(default=None),
     x_app_id: int | None = Header(alias="X-App-Id", default=None),
     x_client_id: int | None = Header(alias="X-Client-Id", default=None),
 ):
-    return render_pos_html(request, user, db, x_app_id, x_client_id)
+    user = get_user_or_redirect(request, authorization)
+    if not user:
+        return RedirectResponse(url="/", status_code=302)
+
+    return render_pos_html(request, user, control_db, x_app_id, x_client_id)
 
 
 # =========================
@@ -130,6 +174,9 @@ def pos_interface(
 def logout():
     response = RedirectResponse(url=os.getenv("LOGOUT_REDIRECT_URL", "/"), status_code=302)
     response.delete_cookie("jwt", path="/")
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
     return response
 
 
@@ -137,6 +184,9 @@ def logout():
 def logout_pos():
     response = RedirectResponse(url=os.getenv("LOGOUT_REDIRECT_URL", "/"), status_code=302)
     response.delete_cookie("jwt", path="/")
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
     return response
 
 
@@ -145,41 +195,48 @@ def logout_pos():
 # =========================
 @router.get("/apps-menu")
 def apps_menu():
-    return RedirectResponse(url=os.getenv("APP_MENU_URL", "/app1/my/apps"), status_code=302)
+    return RedirectResponse(url=os.getenv("APP_MENU_URL", "/"), status_code=302)
 
 
 @router.get("/pos/apps-menu")
 def apps_menu_pos():
-    return RedirectResponse(url=os.getenv("APP_MENU_URL", "/app1/my/apps"), status_code=302)
+    return RedirectResponse(url=os.getenv("APP_MENU_URL", "/"), status_code=302)
 
 
 # =========================
-# Info / entry
+# Sesión / contexto
 # =========================
 @router.get("/me")
 def me(
-    request: Request,
     user: str = Depends(verify_token),
-    db: Session = Depends(get_db),
     x_app_id: int | None = Header(alias="X-App-Id", default=None),
     x_client_id: int | None = Header(alias="X-Client-Id", default=None),
 ):
-    app_id, client_id = resolve_context(request, x_app_id, x_client_id)
-    if app_id and client_id:
-        validate_permission(db, user, app_id, client_id)
+    return {"user": user, "app_id": x_app_id, "client_id": x_client_id}
 
-    return {
-        "user": user,
-        "app_id": app_id,
-        "client_id": client_id,
-    }
+
+@router.get("/session-check")
+def session_check(
+    request: Request,
+    authorization: str | None = Header(default=None),
+):
+    """
+    Chequeo browser-safe para sesión:
+    - Si el token es válido => ok
+    - Si no existe / expiró / es inválido => redirect al login
+    """
+    user = get_user_or_redirect(request, authorization)
+    if not user:
+        return RedirectResponse(url="/", status_code=302)
+
+    return {"ok": True}
 
 
 @router.get("/entry")
 def entry(
     request: Request,
     user: str = Depends(verify_token),
-    db: Session = Depends(get_db),
+    control_db: Session = Depends(get_control_db),
     x_app_id: int | None = Header(alias="X-App-Id", default=None),
     x_client_id: int | None = Header(alias="X-Client-Id", default=None),
 ):
@@ -187,221 +244,249 @@ def entry(
     if not app_id or not client_id:
         raise HTTPException(status_code=400, detail="Faltan app_id o client_id")
 
-    validate_permission(db, user, app_id, client_id)
+    validate_permission(control_db, user, app_id, client_id)
 
-    return {
-        "ok": True,
-        "user": user,
-        "app_id": app_id,
-        "client_id": client_id,
-        "note": "RodelSoft POS /entry OK",
-    }
+    return {"ok": True, "user": user, "app_id": app_id, "client_id": client_id}
 
 
 # =========================
-# API - categorías
-# Soporta /api/... y /pos/api/...
+# Categorías
 # =========================
 @router.get("/api/categories", response_model=List[CategoryResponse])
-@router.get("/pos/api/categories", response_model=List[CategoryResponse])
 def get_categories(
     request: Request,
     user: str = Depends(verify_token),
-    db: Session = Depends(get_db),
+    pos_db: Session = Depends(get_pos_db),
+    control_db: Session = Depends(get_control_db),
     x_app_id: int | None = Header(alias="X-App-Id", default=None),
     x_client_id: int | None = Header(alias="X-Client-Id", default=None),
 ):
     app_id, client_id = resolve_context(request, x_app_id, x_client_id)
-    if app_id and client_id:
-        validate_permission(db, user, app_id, client_id)
+    if not app_id or not client_id:
+        raise HTTPException(status_code=400, detail="Faltan app_id o client_id")
 
-    return db.query(Category).filter(Category.is_active == True).all()
+    validate_permission(control_db, user, app_id, client_id)
+
+    return pos_db.query(Category).filter(Category.is_active == True).all()
 
 
 @router.post("/api/categories", response_model=CategoryResponse)
-@router.post("/pos/api/categories", response_model=CategoryResponse)
 def create_category(
-    category: CategoryCreate,
+    data: CategoryCreate,
     request: Request,
     user: str = Depends(verify_token),
-    db: Session = Depends(get_db),
+    pos_db: Session = Depends(get_pos_db),
+    control_db: Session = Depends(get_control_db),
     x_app_id: int | None = Header(alias="X-App-Id", default=None),
     x_client_id: int | None = Header(alias="X-Client-Id", default=None),
 ):
     app_id, client_id = resolve_context(request, x_app_id, x_client_id)
-    if app_id and client_id:
-        validate_permission(db, user, app_id, client_id)
+    if not app_id or not client_id:
+        raise HTTPException(status_code=400, detail="Faltan app_id o client_id")
 
-    db_category = Category(**category.dict())
-    db.add(db_category)
-    db.commit()
-    db.refresh(db_category)
-    return db_category
+    validate_permission(control_db, user, app_id, client_id)
+
+    category = Category(name=data.name)
+    pos_db.add(category)
+    pos_db.commit()
+    pos_db.refresh(category)
+    return category
 
 
 # =========================
-# API - productos
+# Productos
 # =========================
 @router.get("/api/products", response_model=List[ProductResponse])
-@router.get("/pos/api/products", response_model=List[ProductResponse])
 def get_products(
     request: Request,
-    category_id: int | None = None,
-    search: str | None = None,
     user: str = Depends(verify_token),
-    db: Session = Depends(get_db),
+    pos_db: Session = Depends(get_pos_db),
+    control_db: Session = Depends(get_control_db),
     x_app_id: int | None = Header(alias="X-App-Id", default=None),
     x_client_id: int | None = Header(alias="X-Client-Id", default=None),
 ):
     app_id, client_id = resolve_context(request, x_app_id, x_client_id)
-    if app_id and client_id:
-        validate_permission(db, user, app_id, client_id)
+    if not app_id or not client_id:
+        raise HTTPException(status_code=400, detail="Faltan app_id o client_id")
 
-    query = db.query(Product).filter(Product.is_active == True)
-    if category_id:
-        query = query.filter(Product.category_id == category_id)
-    if search:
-        query = query.filter(Product.name.ilike(f"%{search}%"))
+    validate_permission(control_db, user, app_id, client_id)
 
-    products = query.all()
-    result = []
-    for product in products:
-        product_dict = {**product.__dict__, "category_name": product.category.name if product.category else None}
-        result.append(product_dict)
-    return result
-
-
-@router.post("/api/products", response_model=ProductResponse)
-@router.post("/pos/api/products", response_model=ProductResponse)
-def create_product(
-    product: ProductCreate,
-    request: Request,
-    user: str = Depends(verify_token),
-    db: Session = Depends(get_db),
-    x_app_id: int | None = Header(alias="X-App-Id", default=None),
-    x_client_id: int | None = Header(alias="X-Client-Id", default=None),
-):
-    app_id, client_id = resolve_context(request, x_app_id, x_client_id)
-    if app_id and client_id:
-        validate_permission(db, user, app_id, client_id)
-
-    db_product = Product(**product.dict())
-    db.add(db_product)
-    db.commit()
-    db.refresh(db_product)
-
-    category_name = db_product.category.name if db_product.category else None
-    return {**db_product.__dict__, "category_name": category_name}
-
-
-# =========================
-# API - ventas
-# =========================
-@router.post("/api/sales", response_model=SaleResponse)
-@router.post("/pos/api/sales", response_model=SaleResponse)
-def create_sale(
-    sale_data: SaleCreate,
-    request: Request,
-    user: str = Depends(verify_token),
-    db: Session = Depends(get_db),
-    x_app_id: int | None = Header(alias="X-App-Id", default=None),
-    x_client_id: int | None = Header(alias="X-Client-Id", default=None),
-):
-    app_id, client_id = resolve_context(request, x_app_id, x_client_id)
-    if app_id and client_id:
-        validate_permission(db, user, app_id, client_id)
-
-    total_amount = 0.0
-    sale_items = []
-    for item in sale_data.items:
-        product = db.query(Product).filter(Product.id == item.product_id).first()
-        if not product:
-            raise HTTPException(status_code=404, detail="Producto no encontrado")
-        if product.stock_quantity < item.quantity:
-            raise HTTPException(status_code=400, detail=f"Stock insuficiente para {product.name}")
-
-        item_total = product.price * item.quantity
-        total_amount += item_total
-
-        sale_items.append({
-            "product_id": item.product_id,
-            "quantity": item.quantity,
-            "unit_price": product.price,
-            "total_price": item_total,
-        })
-
-        product.stock_quantity -= item.quantity
-
-    db_sale = Sale(
-        total_amount=total_amount,
-        payment_method=sale_data.payment_method,
-        notes=sale_data.notes,
-        items=[SaleItem(**item) for item in sale_items],
+    rows = (
+        pos_db.query(Product, Category.name.label("category_name"))
+        .outerjoin(Category, Product.category_id == Category.id)
+        .filter(Product.is_active == True)
+        .all()
     )
 
-    db.add(db_sale)
-    db.commit()
-    db.refresh(db_sale)
+    return [
+        {
+            "id": product.id,
+            "name": product.name,
+            "description": product.description,
+            "price": float(product.price) if product.price is not None else 0.0,
+            "cost": float(product.cost) if getattr(product, "cost", None) is not None else 0.0,
+            "sku": getattr(product, "sku", None) or "",
+            "barcode": getattr(product, "barcode", None) or "",
+            "stock_quantity": product.stock_quantity if product.stock_quantity is not None else 0,
+            "min_stock": getattr(product, "min_stock", None) if getattr(product, "min_stock", None) is not None else 0,
+            "image_url": getattr(product, "image_url", None),
+            "category_id": product.category_id,
+            "category_name": category_name,
+            "is_active": bool(product.is_active),
+        }
+        for product, category_name in rows
+    ]
 
-    items_response = []
-    for item in db_sale.items:
-        items_response.append({
-            "id": item.id,
-            "product_id": item.product_id,
-            "product_name": item.product.name,
-            "quantity": item.quantity,
-            "unit_price": item.unit_price,
-            "total_price": item.total_price,
-        })
-
-    return {
-        **db_sale.__dict__,
-        "items": items_response,
-    }
-
-
-@router.get("/api/sales", response_model=List[SaleResponse])
-@router.get("/pos/api/sales", response_model=List[SaleResponse])
-def get_sales(
+@router.post("/api/products", response_model=ProductResponse)
+def create_product(
+    data: ProductCreate,
     request: Request,
-    limit: int = 50,
-    offset: int = 0,
     user: str = Depends(verify_token),
-    db: Session = Depends(get_db),
+    pos_db: Session = Depends(get_pos_db),
+    control_db: Session = Depends(get_control_db),
     x_app_id: int | None = Header(alias="X-App-Id", default=None),
     x_client_id: int | None = Header(alias="X-Client-Id", default=None),
 ):
     app_id, client_id = resolve_context(request, x_app_id, x_client_id)
-    if app_id and client_id:
-        validate_permission(db, user, app_id, client_id)
+    if not app_id or not client_id:
+        raise HTTPException(status_code=400, detail="Faltan app_id o client_id")
 
-    sales = db.query(Sale).order_by(Sale.created_at.desc()).limit(limit).offset(offset).all()
-    result = []
+    validate_permission(control_db, user, app_id, client_id)
 
-    for sale in sales:
-        items_response = []
-        for item in sale.items:
-            items_response.append({
-                "id": item.id,
-                "product_id": item.product_id,
-                "product_name": item.product.name,
+    category = None
+    if data.category_id is not None:
+        category = pos_db.query(Category).filter(Category.id == data.category_id).first()
+        if not category:
+            raise HTTPException(status_code=404, detail="Categoría no encontrada")
+
+    product = Product(
+        name=data.name,
+        description=data.description,
+        price=data.price,
+        cost=data.cost,
+        sku=data.sku,
+        barcode=data.barcode,
+        stock_quantity=data.stock_quantity,
+        min_stock=data.min_stock,
+        category_id=data.category_id,
+    )
+    pos_db.add(product)
+    pos_db.commit()
+    pos_db.refresh(product)
+    return product
+
+
+# =========================
+# Ventas
+# =========================
+@router.post("/api/sales", response_model=SaleResponse)
+def create_sale(
+    data: SaleCreate,
+    request: Request,
+    user: str = Depends(verify_token),
+    pos_db: Session = Depends(get_pos_db),
+    control_db: Session = Depends(get_control_db),
+    x_app_id: int | None = Header(alias="X-App-Id", default=None),
+    x_client_id: int | None = Header(alias="X-Client-Id", default=None),
+):
+    app_id, client_id = resolve_context(request, x_app_id, x_client_id)
+    if not app_id or not client_id:
+        raise HTTPException(status_code=400, detail="Faltan app_id o client_id")
+
+    validate_permission(control_db, user, app_id, client_id)
+
+    if not data.items:
+        raise HTTPException(status_code=400, detail="La venta debe contener al menos un producto")
+
+    try:
+        total = 0.0
+        sale_items = []
+
+        # 1) Validación previa y cálculo
+        for item in data.items:
+            product = pos_db.query(Product).filter(Product.id == item.product_id).first()
+            if not product:
+                raise HTTPException(status_code=404, detail=f"Producto {item.product_id} no encontrado")
+
+            if product.stock_quantity < item.quantity:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Stock insuficiente para {product.name}. Disponible: {product.stock_quantity}",
+                )
+
+            item_total = float(product.price) * item.quantity
+            total += item_total
+
+            sale_items.append({
+                "product": product,
+                "product_name": product.name,
                 "quantity": item.quantity,
-                "unit_price": item.unit_price,
-                "total_price": item.total_price,
+                "unit_price": float(product.price),
+                "total_price": item_total,
             })
 
-        result.append({
-            **sale.__dict__,
-            "items": items_response,
-        })
+        # 2) Crear cabecera
+        sale = Sale(
+            client_id=client_id,
+            app_id=app_id,
+            created_by=user,
+            total_amount=total,
+            payment_method=data.payment_method,
+            notes=data.notes,
+        )
+        
+        pos_db.add(sale)
+        pos_db.flush()
 
-    return result
+        created_items = []
 
+        # 3) Crear detalle + descontar stock
+        for item in sale_items:
+            product = item["product"]
+            product.stock_quantity -= item["quantity"]
 
-# =========================
-# Endpoint opcional
-# =========================
-@router.post("/api/init-sample-data")
-@router.post("/pos/api/init-sample-data")
-def init_sample_data(db: Session = Depends(get_db)):
-    return {"status": "ok", "message": "Init data endpoint"}
+            sale_item = SaleItem(
+                sale_id=sale.id,
+                product_id=product.id,
+                quantity=item["quantity"],
+                unit_price=item["unit_price"],
+                total_price=item["total_price"],
+            )
+            pos_db.add(sale_item)
+            pos_db.flush()
+
+            created_items.append({
+                "id": sale_item.id,
+                "product_id": product.id,
+                "product_name": item["product_name"],
+                "quantity": item["quantity"],
+                "unit_price": item["unit_price"],
+                "total_price": item["total_price"],
+            })
+
+        # 4) Confirmar transacción
+        pos_db.commit()
+        pos_db.refresh(sale)
+
+        return {
+            "id": sale.id,
+            "client_id": sale.client_id,
+            "app_id": sale.app_id,
+            "created_by": sale.created_by,
+            "total_amount": float(sale.total_amount) if sale.total_amount is not None else 0.0,
+            "tax_amount": float(getattr(sale, "tax_amount", 0.0) or 0.0),
+            "discount_amount": float(getattr(sale, "discount_amount", 0.0) or 0.0),
+            "payment_method": sale.payment_method,
+            "status": getattr(sale, "status", None) or "completed",
+            "notes": sale.notes,
+            "created_at": sale.created_at,
+            "items": created_items,
+        }
+
+    except HTTPException:
+        pos_db.rollback()
+        raise
+    except Exception as e:
+        pos_db.rollback()
+        print(f"[POS] Error inesperado en create_sale: {e}")
+        raise HTTPException(status_code=500, detail="Error interno al procesar la venta")

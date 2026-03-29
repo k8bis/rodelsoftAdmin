@@ -1,29 +1,110 @@
-console.log("POS_JS_CHECKOUT_V2_API_BASE_FIX");
+console.log("POS_JS_V4_CONTEXT_FIX");
 
 let categories = [];
 let products = [];
 let cart = {};
 
 const APP_BASE_PATH = window.POS_CONFIG?.APP_BASE_PATH || "/pos";
-const API_BASE = `${APP_BASE_PATH}/api`;
-const APP_MENU_URL = window.POS_CONFIG?.APP_MENU_URL || "/app1/my/apps";
-//const LOGOUT_REDIRECT_URL = window.POS_CONFIG?.LOGOUT_REDIRECT_URL || "/";
+const APP_MENU_URL = window.POS_CONFIG?.APP_MENU_URL || "/";
 const LOGOUT_REDIRECT_URL = "/app1/logout";
+const LOGIN_URL = "/";
+
+// =========================
+// Contexto actual (app_id / client_id)
+// =========================
+const currentUrl = new URL(window.location.href);
+const APP_ID = currentUrl.searchParams.get("app_id");
+const CLIENT_ID = currentUrl.searchParams.get("client_id");
+
+const CONTEXT_QUERY = new URLSearchParams();
+if (APP_ID) CONTEXT_QUERY.set("app_id", APP_ID);
+if (CLIENT_ID) CONTEXT_QUERY.set("client_id", CLIENT_ID);
+
+const CONTEXT_SUFFIX = CONTEXT_QUERY.toString() ? `?${CONTEXT_QUERY.toString()}` : "";
+
+const API_BASE = `${APP_BASE_PATH}/api`;
+const SESSION_CHECK_URL = `${APP_BASE_PATH}/session-check${CONTEXT_SUFFIX}`;
+const CATEGORIES_URL = `${API_BASE}/categories${CONTEXT_SUFFIX}`;
+const PRODUCTS_URL = `${API_BASE}/products${CONTEXT_SUFFIX}`;
+const SALES_URL = `${API_BASE}/sales${CONTEXT_SUFFIX}`;
 
 console.log("APP_BASE_PATH =", APP_BASE_PATH);
 console.log("API_BASE =", API_BASE);
 console.log("APP_MENU_URL =", APP_MENU_URL);
 console.log("LOGOUT_REDIRECT_URL =", LOGOUT_REDIRECT_URL);
+console.log("APP_ID =", APP_ID);
+console.log("CLIENT_ID =", CLIENT_ID);
+console.log("CONTEXT_SUFFIX =", CONTEXT_SUFFIX);
+console.log("SESSION_CHECK_URL =", SESSION_CHECK_URL);
+console.log("CATEGORIES_URL =", CATEGORIES_URL);
+console.log("PRODUCTS_URL =", PRODUCTS_URL);
+console.log("SALES_URL =", SALES_URL);
+
+function redirectToLogin() {
+    window.location.replace(LOGIN_URL);
+}
+
+async function validateSessionOrRedirect() {
+    try {
+        const response = await fetch(SESSION_CHECK_URL, {
+            method: "GET",
+            credentials: "same-origin",
+            cache: "no-store",
+            redirect: "follow"
+        });
+
+        console.log("validateSessionOrRedirect status =", response.status);
+        console.log("validateSessionOrRedirect redirected =", response.redirected);
+        console.log("validateSessionOrRedirect final url =", response.url);
+
+        if (response.redirected) {
+            console.warn("Sesión inválida detectada por redirect del servidor. Redirigiendo al login...");
+            redirectToLogin();
+            return false;
+        }
+
+        if (!response.ok) {
+            console.warn("Sesión inválida o expirada. Redirigiendo al login...");
+            redirectToLogin();
+            return false;
+        }
+
+        return true;
+    } catch (error) {
+        console.error("Error validando sesión:", error);
+        redirectToLogin();
+        return false;
+    }
+}
+
+async function handleApiResponse(response, endpointName = "API") {
+    if (response.redirected) {
+        console.warn(`${endpointName} respondió con redirect. Redirigiendo al login...`);
+        redirectToLogin();
+        throw new Error("Sesión expirada o inválida");
+    }
+
+    if (response.status === 401) {
+        console.warn(`${endpointName} respondió 401. Redirigiendo al login...`);
+        redirectToLogin();
+        throw new Error("Sesión expirada o inválida");
+    }
+
+    return response;
+}
 
 async function loadData() {
     try {
-        console.log("Cargando categorías desde:", `${API_BASE}/categories`);
-        console.log("Cargando productos desde:", `${API_BASE}/products`);
+        console.log("Cargando categorías desde:", CATEGORIES_URL);
+        console.log("Cargando productos desde:", PRODUCTS_URL);
 
-        const [categoriesRes, productsRes] = await Promise.all([
-            fetch(`${API_BASE}/categories`, { credentials: "same-origin" }),
-            fetch(`${API_BASE}/products`, { credentials: "same-origin" })
+        const [categoriesResRaw, productsResRaw] = await Promise.all([
+            fetch(CATEGORIES_URL, { credentials: "same-origin", cache: "no-store", redirect: "follow" }),
+            fetch(PRODUCTS_URL, { credentials: "same-origin", cache: "no-store", redirect: "follow" })
         ]);
+
+        const categoriesRes = await handleApiResponse(categoriesResRaw, "categories");
+        const productsRes = await handleApiResponse(productsResRaw, "products");
 
         console.log("categoriesRes.status =", categoriesRes.status);
         console.log("productsRes.status =", productsRes.status);
@@ -52,6 +133,10 @@ async function loadData() {
 
     } catch (error) {
         console.error("Error cargando catálogo:", error);
+
+        if (String(error.message).includes("Sesión expirada o inválida")) {
+            return;
+        }
 
         const grid = document.getElementById("productsGrid");
         if (grid) {
@@ -240,14 +325,18 @@ async function checkout() {
     console.log("Checkout payload:", payload);
 
     try {
-        const response = await fetch(`${API_BASE}/sales`, {
+        const responseRaw = await fetch(SALES_URL, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
             },
             credentials: "same-origin",
+            cache: "no-store",
+            redirect: "follow",
             body: JSON.stringify(payload)
         });
+
+        const response = await handleApiResponse(responseRaw, "sales");
 
         console.log("checkout response.status =", response.status);
 
@@ -274,6 +363,11 @@ async function checkout() {
 
     } catch (error) {
         console.error("Error en checkout:", error);
+
+        if (String(error.message).includes("Sesión expirada o inválida")) {
+            return;
+        }
+
         alert("Error inesperado al procesar la venta.");
     }
 }
@@ -348,9 +442,29 @@ function setupButtons() {
     }
 }
 
-document.addEventListener("DOMContentLoaded", function () {
+async function bootPOS() {
+    // Si no hay contexto, mejor salir limpio al login/catálogo
+    if (!APP_ID || !CLIENT_ID) {
+        console.warn("Faltan app_id o client_id en la URL. Redirigiendo...");
+        redirectToLogin();
+        return;
+    }
+
+    const isValid = await validateSessionOrRedirect();
+    if (!isValid) return;
+
     setupSearch();
     setupButtons();
     setupUserMenu();
     loadData();
+}
+
+document.addEventListener("DOMContentLoaded", function () {
+    bootPOS();
+});
+
+// Importante para botón Atrás / bfcache
+window.addEventListener("pageshow", async function () {
+    const isValid = await validateSessionOrRedirect();
+    if (!isValid) return;
 });

@@ -68,11 +68,34 @@ class Login(BaseModel):
 @app.get("/")
 def root(
     request: Request,
-    user: str = Depends(verify_token),
     db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
     x_app_id: int | None = Header(alias="X-App-Id", default=None),
     x_client_id: int | None = Header(alias="X-Client-Id", default=None),
 ):
+    # Validación manual para UX browser:
+    # si no hay token válido, redirigir al login en lugar de devolver JSON 401
+    token = None
+
+    # 1) Header Authorization (preferido; Nginx lo inyecta desde la cookie)
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ")[1]
+
+    # 2) Fallback: cookie 'jwt'
+    if not token:
+        token = request.cookies.get("jwt")
+
+    if not token:
+        return RedirectResponse(url="/", status_code=302)
+
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user = payload["sub"]
+    except jwt.ExpiredSignatureError:
+        return RedirectResponse(url="/", status_code=302)
+    except jwt.InvalidTokenError:
+        return RedirectResponse(url="/", status_code=302)
+
     app_id = x_app_id
     client_id = x_client_id
 
