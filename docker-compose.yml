@@ -130,6 +130,24 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+  
+  dynamic-app-router:
+    build: ./dynamic-app-router
+    container_name: dynamic_app_router
+    restart: always
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: ${MYSQL_USER:-proyecto_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-proyecto_pass}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-proyecto_db}
+      DB_MAX_RETRIES: 30
+      DB_RETRY_DELAY: 2
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - "8300:8300"
 
   nginx:
     build: ./nginx
@@ -143,3 +161,4 @@ services:
       - app-hija-1
       - app-hija-2
       - rodelsoft-pos
+      - dynamic-app-router

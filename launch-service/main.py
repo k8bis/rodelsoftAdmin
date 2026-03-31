@@ -249,6 +249,35 @@ def build_final_url(request: Request, public_url: str, entry_path: str, app_id: 
 
     return f"{base_url}{final_path}?{query}"
 
+def build_dynamic_proxy_url(request: Request, slug: str, entry_path: str, app_id: int, client_id: int) -> str:
+    """
+    Construye URL dinámica bajo /ext/<slug>/...
+    Ejemplo:
+      /ext/rodelsoft-notes-external/?app_id=4&client_id=4
+    """
+    raw_entry = (entry_path or "/").strip()
+
+    if not raw_entry.startswith("/"):
+        raw_entry = "/" + raw_entry
+
+    forwarded_proto = request.headers.get("x-forwarded-proto")
+    scheme = forwarded_proto or request.url.scheme or "http"
+    host = request.headers.get("host")
+
+    if not host:
+        raise HTTPException(status_code=500, detail="No se pudo resolver el host de la petición")
+
+    base_url = f"{scheme}://{host}/ext/{slug}"
+
+    final_path = "/" if raw_entry == "/" else raw_entry
+
+    query = urlencode({
+        "app_id": app_id,
+        "client_id": client_id,
+    })
+
+    return f"{base_url}{final_path}?{query}"
+
 def check_app_health(internal_url: str, health_path: str, timeout_seconds: int = 2) -> bool:
     """
     Health check interno usando la red Docker / red interna.
@@ -333,12 +362,18 @@ def launch(request: Request, app_id: int, client_id: int):
                 },
             )
 
-        # 5) URL final (100% dinámica por BD)
-        final_url = build_final_url(request, public_url, entry_path, app_id, client_id)
+        # 5) URL final según launch_mode
+        if launch_mode == "dynamic_proxy":
+            slug = (app_row["slug"] or "").strip()
+            if not slug:
+                raise HTTPException(status_code=500, detail="La aplicación no tiene slug configurado")
+
+            final_url = build_dynamic_proxy_url(request, slug, entry_path, app_id, client_id)
+        else:
+            final_url = build_final_url(request, public_url, entry_path, app_id, client_id)
+
         print(f"[launch-service] Redirect final => {final_url}")
 
-        # Por ahora launch_mode se conserva para futuro, pero el comportamiento actual
-        # es redirect porque es el que cumple tu regla de cero hardcode.
         return RedirectResponse(url=final_url, status_code=302)
 
     except HTTPException:

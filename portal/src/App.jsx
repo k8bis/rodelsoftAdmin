@@ -35,6 +35,18 @@ export default function App() {
     restoreSession();
   }, []);
 
+  useEffect(() => {
+    const handlePageShow = () => {
+      restoreSession();
+    };
+
+    window.addEventListener("pageshow", handlePageShow);
+
+    return () => {
+      window.removeEventListener("pageshow", handlePageShow);
+    };
+  }, []);
+
   const restoreSession = async () => {
     setInitializing(true);
 
@@ -46,9 +58,11 @@ export default function App() {
       });
 
       if (!r.ok) {
-        // Si no hay sesión válida, simplemente mostramos login
         setAuthed(false);
         setRawApps([]);
+        setSelectedClientByApp({});
+        setMsg("");
+        setMsgType("info");
         return;
       }
 
@@ -78,6 +92,9 @@ export default function App() {
       console.error("Error restaurando sesión:", e);
       setAuthed(false);
       setRawApps([]);
+      setSelectedClientByApp({});
+      setMsg("");
+      setMsgType("info");
     } finally {
       setInitializing(false);
     }
