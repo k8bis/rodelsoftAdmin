@@ -17,6 +17,13 @@ export default function App() {
   // selección por app -> cliente
   const [selectedClientByApp, setSelectedClientByApp] = useState({});
 
+  // FASE 5.2 - navegación centralizada del portal (sin hardcodes dispersos)
+  const LOGIN_API_URL = "/app1/login";
+  const LOGOUT_API_URL = "/app1/logout";
+  const ME_API_URL = "/app1/me";
+  const MY_APPS_API_URL = "/app1/my/apps";
+  const LAUNCH_BASE_URL = "/launch";
+
   // Lee mensajes enviados por launch-service (?msg=...)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -68,7 +75,7 @@ export default function App() {
     setInitializing(true);
 
     try {
-      const r = await fetch("/app1/my/apps", {
+      const r = await fetch(MY_APPS_API_URL, {
         method: "GET",
         credentials: "include",
         cache: "no-store",
@@ -90,7 +97,7 @@ export default function App() {
 
       // Opcional: intentar obtener usuario real
       try {
-        const me = await fetch("/app1/me", {
+        const me = await fetch(ME_API_URL, {
           method: "GET",
           credentials: "include",
           cache: "no-store",
@@ -122,7 +129,7 @@ export default function App() {
     setLoading(true);
 
     try {
-      const r = await fetch("/app1/login", {
+      const r = await fetch(LOGIN_API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -153,7 +160,7 @@ export default function App() {
   const logout = async () => {
     setMsg("");
     try {
-      await fetch("/app1/logout", {
+      await fetch(LOGOUT_API_URL, {
         method: "POST",
         credentials: "include",
       });
@@ -171,7 +178,7 @@ export default function App() {
     setMsg("");
 
     try {
-      const r = await fetch("/app1/my/apps", {
+      const r = await fetch(MY_APPS_API_URL, {
         method: "GET",
         credentials: "include",
         cache: "no-store",
@@ -179,7 +186,7 @@ export default function App() {
 
       if (!r.ok) {
         const t = await r.text();
-        setMsg(`/app1/my/apps falló (${r.status}): ${t}`);
+        setMsg(`${MY_APPS_API_URL} falló (${r.status}): ${t}`);
         setMsgType("error");
         setRawApps([]);
         setAuthed(false);
@@ -190,7 +197,7 @@ export default function App() {
       setRawApps(Array.isArray(data) ? data : []);
       setAuthed(true);
     } catch (e) {
-      setMsg(`Error /app1/my/apps: ${String(e)}`);
+      setMsg(`Error ${MY_APPS_API_URL}: ${String(e)}`);
       setMsgType("error");
       setRawApps([]);
       setAuthed(false);
@@ -288,7 +295,7 @@ export default function App() {
     }
 
     // FASE 2: usar launch-service
-    window.location.href = `/launch?app_id=${app_id}&client_id=${client_id}`;
+    window.location.href = `${LAUNCH_BASE_URL}?app_id=${app_id}&client_id=${client_id}`;
   };
 
   // 🔥 NUEVO: mientras valida sesión, no mostrar login prematuramente

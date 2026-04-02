@@ -4,84 +4,97 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>RodelSoft POS - __APP_NAME__</title>
-  <link rel="stylesheet" href="__APP_BASE_PATH__/static/pos.css?v=20260401-2" />
+  <link rel="stylesheet" href="__APP_BASE_PATH__/static/css/shared-shell.css?v=20260401-1" />
+  <link rel="stylesheet" href="__APP_BASE_PATH__/static/pos.css?v=20260401-3" />
 </head>
 <body>
-  <div class="pos-layout">
+  <div class="rs-app-shell">
+    <div class="pos-layout">
 
-    <!-- HEADER -->
-    <header class="rs-shell-header rs-shell-header-app">
-      <div class="rs-shell-left">
-        <div class="rs-shell-logo-box">RS</div>
-        <div class="rs-shell-brand">
-          <div class="rs-shell-title">RodelSoft POS</div>
-          <div class="rs-shell-subtitle">__CLIENT_NAME__</div>
-        </div>
-      </div>
-
-      <div class="rs-shell-right">
-        <div class="rs-user-menu">
-          <button id="userMenuBtn" class="rs-user-trigger" type="button">
-            👤 __USER__
-          </button>
-
-          <div id="userDropdown" class="rs-user-dropdown">
-            <button id="appsMenuBtn" type="button" class="rs-user-dropdown-item">
-              Volver a apps
-            </button>
-            <button id="logoutBtn" type="button" class="rs-user-dropdown-item rs-user-dropdown-item-danger">
-              Cerrar sesión
-            </button>
+      <!-- HEADER -->
+      <header class="rs-shell-header rs-shell-header-app">
+        <div class="rs-shell-left">
+          <div class="rs-shell-logo-box">RS</div>
+          <div class="rs-shell-brand">
+            <div class="rs-shell-title">RodelSoft POS</div>
+            <div class="rs-shell-subtitle">__CLIENT_NAME__</div>
           </div>
         </div>
+
+        <div class="rs-shell-right">
+          <div class="rs-user-menu">
+            <button id="userMenuBtn" class="rs-user-trigger" type="button">
+              👤 __USER__
+            </button>
+
+            <div id="userDropdown" class="rs-user-dropdown">
+              <button id="appsMenuBtn" type="button" class="rs-user-dropdown-item">
+                Volver a apps
+              </button>
+              <button id="logoutBtn" type="button" class="rs-user-dropdown-item rs-user-dropdown-item-danger">
+                Cerrar sesión
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <!-- MAIN -->
+      <main class="pos-main">
+
+        <!-- PANEL IZQUIERDO -->
+        <section class="catalog-panel">
+          <div class="section-title">Catálogo de Productos</div>
+
+          <div class="toolbar">
+            <button id="refreshBtn" class="action-btn">🔄 Refrescar</button>
+            <input
+              type="text"
+              id="searchInput"
+              class="search-input"
+              placeholder="Buscar productos..."
+            />
+          </div>
+
+          <div id="categoriesContainer" class="categories-container"></div>
+
+          <div id="productsGrid" class="products-grid">
+            <div class="loading-box">Cargando catálogo...</div>
+          </div>
+        </section>
+
+        <!-- PANEL DERECHO -->
+        <aside class="cart-panel">
+          <div class="section-title">Carrito de Compras</div>
+
+          <div id="cartItems" class="cart-items">
+            <div class="empty-cart">El carrito está vacío.</div>
+          </div>
+
+          <div id="cartTotal" class="cart-total">Total: $0.00</div>
+
+          <button id="checkoutBtn" class="checkout-btn">💳 Procesar Pago</button>
+        </aside>
+
+      </main>
+    </div>
+
+    <footer class="rs-shell-footer">
+      <div class="rs-shell-footer-inner">
+        <span>RodelSoft Platform</span>
+        <span>POS · UI Shell v1</span>
       </div>
-    </header>
-
-    <!-- MAIN -->
-    <main class="pos-main">
-
-      <!-- PANEL IZQUIERDO -->
-      <section class="catalog-panel">
-        <div class="section-title">Catálogo de Productos</div>
-
-        <div class="toolbar">
-          <button id="refreshBtn" class="action-btn">🔄 Refrescar</button>
-          <input
-            type="text"
-            id="searchInput"
-            class="search-input"
-            placeholder="Buscar productos..."
-          />
-        </div>
-
-        <div id="categoriesContainer" class="categories-container"></div>
-
-        <div id="productsGrid" class="products-grid">
-          <div class="loading-box">Cargando catálogo...</div>
-        </div>
-      </section>
-
-      <!-- PANEL DERECHO -->
-      <aside class="cart-panel">
-        <div class="section-title">Carrito de Compras</div>
-
-        <div id="cartItems" class="cart-items">
-          <div class="empty-cart">El carrito está vacío.</div>
-        </div>
-
-        <div id="cartTotal" class="cart-total">Total: $0.00</div>
-
-        <button id="checkoutBtn" class="checkout-btn">💳 Procesar Pago</button>
-      </aside>
-
-    </main>
+    </footer>
   </div>
 
   <script>
     window.POS_CONFIG = {
-      VERSION: "POS_TEMPLATE_V4_LOGOUT_FIX",
+      VERSION: "POS_TEMPLATE_V5_SHARED_SHELL",
       APP_BASE_PATH: "__APP_BASE_PATH__",
       APP_MENU_URL: "__APP_MENU_URL__",
+      LOGOUT_URL: "__LOGOUT_URL__",
+      LOGIN_FALLBACK_URL: "__LOGIN_FALLBACK_URL__",
+      SESSION_CHECK_URL: "__SESSION_CHECK_URL__",
       LOGOUT_REDIRECT_URL: "__LOGOUT_REDIRECT_URL__"
     };
     console.log("POS_CONFIG =>", window.POS_CONFIG);

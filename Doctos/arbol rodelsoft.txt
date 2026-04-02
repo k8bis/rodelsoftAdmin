@@ -153,6 +153,7 @@ rodolfo@RodelSoft-lnx01:~/Rodel/rodelsoftAdmin$ tree -L 4
 │       ├── requirements.txt
 │       ├── schemas.py
 │       ├── static
+│       │   ├── css
 │       │   ├── pos.css
 │       │   └── pos.js
 │       └── templates
@@ -167,13 +168,20 @@ rodolfo@RodelSoft-lnx01:~/Rodel/rodelsoftAdmin$ tree -L 4
 │   ├── 00-init.sql
 │   ├── 10-schema.sql
 │   ├── 20-seed.sql
+│   ├── 30-pos-schema.sql
+│   ├── 40-pos-pos-seed.sql
+│   ├── 40-pos-seed.sql
 │   ├── init.legacy.sql
 │   ├── migrate_fase3.sql
 │   └── migrate_fase6_subscriptions.sql
 ├── docker-compose.yml
 ├── Doctos
+│   ├── arbol notes-external.txt
+│   ├── arbol rodelsoft.txt
 │   ├── hallazgos y mejoras.txt
-│   └── RodelSoft Platform — Arquitectura Oficial v1.docx
+│   ├── RodelSoft Platform — Arquitectura Oficial v1.docx
+│   ├── show CREATE TABLES.txt
+│   └── show_tables_prpoyecto_db.txt
 ├── dynamic-app-router
 │   ├── db.py
 │   ├── Dockerfile
@@ -209,9 +217,11 @@ rodolfo@RodelSoft-lnx01:~/Rodel/rodelsoftAdmin$ tree -L 4
 ├── README.md
 ├── rodelsoftAdmin-tree.txt
 ├── Running
+├── shared
+│   ├── README-ui-shell.md
+│   └── shared-shell.css
 └── test
     ├── Diagrama sin título.drawio
     └── test_e2e.py
 
-138 directories, 75 files
-
+141 directories, 83 files

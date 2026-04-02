@@ -13,6 +13,7 @@ from urllib.parse import urlencode
 # =========================================================
 # Configuración
 # =========================================================
+PORTAL_ROOT_URL = os.getenv("PORTAL_ROOT_URL", "/")
 
 SECRET_KEY = os.getenv("SECRET_KEY", "supersecret")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
@@ -328,7 +329,12 @@ def redirect_to_portal_with_message(message: str, level: str = "warning") -> Red
         "msg": message,
         "msg_type": level,
     })
-    return RedirectResponse(url=f"/?{qs}", status_code=302)
+    base = PORTAL_ROOT_URL.rstrip("/") or "/"
+
+    if base == "/":
+        return RedirectResponse(url=f"/?{qs}", status_code=302)
+
+    return RedirectResponse(url=f"{base}/?{qs}", status_code=302)
 
 # =========================================================
 # Endpoints

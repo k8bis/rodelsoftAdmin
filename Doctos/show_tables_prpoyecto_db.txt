@@ -1,0 +1,8 @@
+'applications'
+'client_app_subscriptions'
+'clients'
+'permissions'
+'system_admins'
+'users'
+'v_user_permissions'
+

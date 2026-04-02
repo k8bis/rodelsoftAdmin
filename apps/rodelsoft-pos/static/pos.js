@@ -4,13 +4,29 @@ let categories = [];
 let products = [];
 let cart = {};
 
-const APP_BASE_PATH = window.POS_CONFIG?.APP_BASE_PATH || "/pos";
-const APP_MENU_URL = window.POS_CONFIG?.APP_MENU_URL || "/";
-const LOGOUT_REDIRECT_URL = window.POS_CONFIG?.LOGOUT_REDIRECT_URL || "/";
-const LOGIN_URL = "/";
+const NAV = window.RODELSOFT_NAV || {};
+const POSCFG = window.POS_CONFIG || {};
 
-// Logout REAL centralizado (NO usar LOGOUT_REDIRECT_URL para POST)
-const CENTRAL_LOGOUT_URL = "/app1/logout";
+const APP_BASE_PATH =
+  NAV.APP_HOME_URL ||
+  POSCFG.APP_BASE_PATH ||
+  "/pos";
+
+const APP_MENU_URL =
+  NAV.APP_MENU_URL ||
+  POSCFG.APP_MENU_URL ||
+  "/";
+
+const LOGOUT_URL =
+  NAV.LOGOUT_URL ||
+  POSCFG.LOGOUT_URL ||
+  `${APP_BASE_PATH}/logout`;
+
+const LOGIN_FALLBACK_URL =
+  NAV.LOGIN_FALLBACK_URL ||
+  POSCFG.LOGIN_FALLBACK_URL ||
+  POSCFG.LOGOUT_REDIRECT_URL ||
+  "/";
 
 // =========================
 // Contexto actual (app_id / client_id)
@@ -34,8 +50,8 @@ const SALES_URL = `${API_BASE}/sales${CONTEXT_SUFFIX}`;
 console.log("APP_BASE_PATH =", APP_BASE_PATH);
 console.log("API_BASE =", API_BASE);
 console.log("APP_MENU_URL =", APP_MENU_URL);
-console.log("LOGOUT_REDIRECT_URL =", LOGOUT_REDIRECT_URL);
-console.log("CENTRAL_LOGOUT_URL =", CENTRAL_LOGOUT_URL);
+console.log("LOGOUT_URL =", LOGOUT_URL);
+console.log("LOGIN_FALLBACK_URL =", LOGIN_FALLBACK_URL);
 console.log("APP_ID =", APP_ID);
 console.log("CLIENT_ID =", CLIENT_ID);
 console.log("CONTEXT_SUFFIX =", CONTEXT_SUFFIX);
@@ -45,7 +61,7 @@ console.log("PRODUCTS_URL =", PRODUCTS_URL);
 console.log("SALES_URL =", SALES_URL);
 
 function redirectToLogin() {
-    window.location.replace(LOGIN_URL);
+    window.location.replace(LOGIN_FALLBACK_URL);
 }
 
 async function validateSessionOrRedirect() {
@@ -429,9 +445,9 @@ function setupUserMenu() {
     if (logoutBtn) {
         logoutBtn.addEventListener("click", async () => {
             try {
-                console.log("Ejecutando logout centralizado en:", CENTRAL_LOGOUT_URL);
+                console.log("Ejecutando logout centralizado en:", LOGOUT_URL);
 
-                const response = await fetch(CENTRAL_LOGOUT_URL, {
+                const response = await fetch(LOGOUT_URL, {
                     method: "POST",
                     credentials: "include",
                     cache: "no-store",
@@ -450,7 +466,7 @@ function setupUserMenu() {
             }
 
             // Siempre regresar al login/portal después de invalidar sesión
-            window.location.replace(LOGIN_URL);
+            window.location.replace(LOGIN_FALLBACK_URL);
         });
     }
 }

@@ -23,6 +23,10 @@ router = APIRouter()
 # Configuración base de rutas
 # =========================
 APP_BASE_PATH = os.getenv("APP_BASE_PATH", "/pos")
+APP_MENU_URL = os.getenv("APP_MENU_URL", "/")
+LOGOUT_URL = os.getenv("LOGOUT_URL", f"{APP_BASE_PATH}/logout")
+LOGIN_FALLBACK_URL = os.getenv("LOGIN_FALLBACK_URL", "/")
+SESSION_CHECK_URL = os.getenv("SESSION_CHECK_URL", f"{APP_BASE_PATH}/session-check")
 
 
 def get_user_or_redirect(
@@ -87,9 +91,10 @@ def render_pos_html(
     app_name = app_info.app if app_info else "POS"
     client_name = app_info.client_name if app_info else "Cliente"
 
-    # Si no vienen por env, usamos defaults sanos
-    app_menu_url = os.getenv("APP_MENU_URL", "/")
-    logout_redirect_url = os.getenv("LOGOUT_REDIRECT_URL", "/")
+    app_menu_url = APP_MENU_URL
+    logout_url = LOGOUT_URL
+    login_fallback_url = LOGIN_FALLBACK_URL
+    session_check_url = SESSION_CHECK_URL
 
     template_path = Path(__file__).resolve().parent / "templates" / "pos_template.html"
     if not template_path.exists():
@@ -101,12 +106,18 @@ def render_pos_html(
     html_content = html_content.replace("__CLIENT_NAME__", client_name)
     html_content = html_content.replace("__USER__", user)
     html_content = html_content.replace("__APP_MENU_URL__", app_menu_url)
-    html_content = html_content.replace("__LOGOUT_REDIRECT_URL__", logout_redirect_url)
+    html_content = html_content.replace("__LOGOUT_URL__", logout_url)
+    html_content = html_content.replace("__LOGIN_FALLBACK_URL__", login_fallback_url)
+    html_content = html_content.replace("__SESSION_CHECK_URL__", session_check_url)
     html_content = html_content.replace("__APP_BASE_PATH__", APP_BASE_PATH)
+    # Compatibilidad temporal Fase 5.2
+    html_content = html_content.replace("__LOGOUT_REDIRECT_URL__", login_fallback_url)
 
     print("[POS] APP_BASE_PATH =", APP_BASE_PATH)
     print("[POS] APP_MENU_URL =", app_menu_url)
-    print("[POS] LOGOUT_REDIRECT_URL =", logout_redirect_url)
+    print("[POS] LOGOUT_URL =", logout_url)
+    print("[POS] LOGIN_FALLBACK_URL =", login_fallback_url)
+    print("[POS] SESSION_CHECK_URL =", session_check_url)
     print("[POS] HTML placeholders check =>",
         "__APP_BASE_PATH__" in html_content,
         "__APP_MENU_URL__" in html_content,
@@ -147,10 +158,9 @@ def root(
 ):
     user = get_user_or_redirect(request, authorization)
     if not user:
-        return RedirectResponse(url="/", status_code=302)
+        return RedirectResponse(url=LOGIN_FALLBACK_URL, status_code=302)
 
     return render_pos_html(request, user, control_db, x_app_id, x_client_id)
-
 
 @router.get("/pos", response_class=HTMLResponse)
 def pos_interface(
@@ -162,7 +172,7 @@ def pos_interface(
 ):
     user = get_user_or_redirect(request, authorization)
     if not user:
-        return RedirectResponse(url="/", status_code=302)
+        return RedirectResponse(url=LOGIN_FALLBACK_URL, status_code=302)
 
     return render_pos_html(request, user, control_db, x_app_id, x_client_id)
 
@@ -172,7 +182,7 @@ def pos_interface(
 # =========================
 @router.post("/logout")
 def logout():
-    response = RedirectResponse(url=os.getenv("LOGOUT_REDIRECT_URL", "/"), status_code=302)
+    response = RedirectResponse(url=LOGIN_FALLBACK_URL, status_code=302)
     response.delete_cookie("jwt", path="/")
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
@@ -182,7 +192,7 @@ def logout():
 
 @router.post("/pos/logout")
 def logout_pos():
-    response = RedirectResponse(url=os.getenv("LOGOUT_REDIRECT_URL", "/"), status_code=302)
+    response = RedirectResponse(url=LOGIN_FALLBACK_URL, status_code=302)
     response.delete_cookie("jwt", path="/")
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
@@ -195,12 +205,12 @@ def logout_pos():
 # =========================
 @router.get("/apps-menu")
 def apps_menu():
-    return RedirectResponse(url=os.getenv("APP_MENU_URL", "/"), status_code=302)
+    return RedirectResponse(url=APP_MENU_URL, status_code=302)
 
 
 @router.get("/pos/apps-menu")
 def apps_menu_pos():
-    return RedirectResponse(url=os.getenv("APP_MENU_URL", "/"), status_code=302)
+    return RedirectResponse(url=APP_MENU_URL, status_code=302)
 
 
 # =========================
@@ -227,7 +237,7 @@ def session_check(
     """
     user = get_user_or_redirect(request, authorization)
     if not user:
-        return RedirectResponse(url="/", status_code=302)
+        return RedirectResponse(url=LOGIN_FALLBACK_URL, status_code=302)
 
     return {"ok": True}
 
