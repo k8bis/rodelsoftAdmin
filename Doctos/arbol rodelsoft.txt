@@ -1,0 +1,217 @@
+rodolfo@RodelSoft-lnx01:~/Rodel/rodelsoftAdmin$ tree -L 4
+.
+├── 6c79aa722885
+├── 822f13dc17f6
+├── a97d82f709e2
+├── apps
+│   ├── app-hija-1
+│   │   ├── db.py
+│   │   ├── Dockerfile
+│   │   ├── main.py
+│   │   └── requirements.txt
+│   ├── app-hija-2
+│   │   ├── db.js
+│   │   ├── Dockerfile
+│   │   ├── index.js
+│   │   ├── node_modules
+│   │   │   ├── accepts
+│   │   │   ├── anymatch
+│   │   │   ├── array-flatten
+│   │   │   ├── aws-ssl-profiles
+│   │   │   ├── balanced-match
+│   │   │   ├── binary-extensions
+│   │   │   ├── body-parser
+│   │   │   ├── brace-expansion
+│   │   │   ├── braces
+│   │   │   ├── buffer-equal-constant-time
+│   │   │   ├── bytes
+│   │   │   ├── call-bind-apply-helpers
+│   │   │   ├── call-bound
+│   │   │   ├── chokidar
+│   │   │   ├── concat-map
+│   │   │   ├── content-disposition
+│   │   │   ├── content-type
+│   │   │   ├── cookie
+│   │   │   ├── cookie-signature
+│   │   │   ├── debug
+│   │   │   ├── denque
+│   │   │   ├── depd
+│   │   │   ├── destroy
+│   │   │   ├── dotenv
+│   │   │   ├── dunder-proto
+│   │   │   ├── ecdsa-sig-formatter
+│   │   │   ├── ee-first
+│   │   │   ├── encodeurl
+│   │   │   ├── escape-html
+│   │   │   ├── es-define-property
+│   │   │   ├── es-errors
+│   │   │   ├── es-object-atoms
+│   │   │   ├── etag
+│   │   │   ├── express
+│   │   │   ├── fill-range
+│   │   │   ├── finalhandler
+│   │   │   ├── forwarded
+│   │   │   ├── fresh
+│   │   │   ├── function-bind
+│   │   │   ├── generate-function
+│   │   │   ├── get-intrinsic
+│   │   │   ├── get-proto
+│   │   │   ├── glob-parent
+│   │   │   ├── gopd
+│   │   │   ├── has-flag
+│   │   │   ├── hasown
+│   │   │   ├── has-symbols
+│   │   │   ├── http-errors
+│   │   │   ├── iconv-lite
+│   │   │   ├── ignore-by-default
+│   │   │   ├── inherits
+│   │   │   ├── ipaddr.js
+│   │   │   ├── is-binary-path
+│   │   │   ├── is-extglob
+│   │   │   ├── is-glob
+│   │   │   ├── is-number
+│   │   │   ├── is-property
+│   │   │   ├── jsonwebtoken
+│   │   │   ├── jwa
+│   │   │   ├── jws
+│   │   │   ├── lodash.includes
+│   │   │   ├── lodash.isboolean
+│   │   │   ├── lodash.isinteger
+│   │   │   ├── lodash.isnumber
+│   │   │   ├── lodash.isplainobject
+│   │   │   ├── lodash.isstring
+│   │   │   ├── lodash.once
+│   │   │   ├── long
+│   │   │   ├── lru-cache
+│   │   │   ├── lru.min
+│   │   │   ├── math-intrinsics
+│   │   │   ├── media-typer
+│   │   │   ├── merge-descriptors
+│   │   │   ├── methods
+│   │   │   ├── mime
+│   │   │   ├── mime-db
+│   │   │   ├── mime-types
+│   │   │   ├── minimatch
+│   │   │   ├── ms
+│   │   │   ├── mysql2
+│   │   │   ├── named-placeholders
+│   │   │   ├── negotiator
+│   │   │   ├── nodemon
+│   │   │   ├── normalize-path
+│   │   │   ├── object-inspect
+│   │   │   ├── on-finished
+│   │   │   ├── parseurl
+│   │   │   ├── path-to-regexp
+│   │   │   ├── picomatch
+│   │   │   ├── proxy-addr
+│   │   │   ├── pstree.remy
+│   │   │   ├── qs
+│   │   │   ├── range-parser
+│   │   │   ├── raw-body
+│   │   │   ├── readdirp
+│   │   │   ├── safe-buffer
+│   │   │   ├── safer-buffer
+│   │   │   ├── semver
+│   │   │   ├── send
+│   │   │   ├── seq-queue
+│   │   │   ├── serve-static
+│   │   │   ├── setprototypeof
+│   │   │   ├── side-channel
+│   │   │   ├── side-channel-list
+│   │   │   ├── side-channel-map
+│   │   │   ├── side-channel-weakmap
+│   │   │   ├── simple-update-notifier
+│   │   │   ├── sqlstring
+│   │   │   ├── statuses
+│   │   │   ├── supports-color
+│   │   │   ├── toidentifier
+│   │   │   ├── to-regex-range
+│   │   │   ├── touch
+│   │   │   ├── type-is
+│   │   │   ├── undefsafe
+│   │   │   ├── unpipe
+│   │   │   ├── utils-merge
+│   │   │   └── vary
+│   │   ├── package.json
+│   │   └── package-lock.json
+│   └── rodelsoft-pos
+│       ├── auth.py
+│       ├── db.py
+│       ├── Dockerfile
+│       ├── main.py
+│       ├── main.py.bak
+│       ├── permissions.py
+│       ├── populate_sample_data.py
+│       ├── pos_routes.py
+│       ├── __pycache__
+│       │   ├── auth.cpython-312.pyc
+│       │   ├── main.cpython-312.pyc
+│       │   ├── permissions.cpython-312.pyc
+│       │   ├── pos_routes.cpython-312.pyc
+│       │   └── schemas.cpython-312.pyc
+│       ├── README.md
+│       ├── requirements.txt
+│       ├── schemas.py
+│       ├── static
+│       │   ├── pos.css
+│       │   └── pos.js
+│       └── templates
+│           └── pos_template.html
+├── authz-service
+│   ├── db.py
+│   ├── Dockerfile
+│   ├── main.py
+│   └── requirements.txt
+├── cookies.txt
+├── database
+│   ├── 00-init.sql
+│   ├── 10-schema.sql
+│   ├── 20-seed.sql
+│   ├── init.legacy.sql
+│   ├── migrate_fase3.sql
+│   └── migrate_fase6_subscriptions.sql
+├── docker-compose.yml
+├── Doctos
+│   ├── hallazgos y mejoras.txt
+│   └── RodelSoft Platform — Arquitectura Oficial v1.docx
+├── dynamic-app-router
+│   ├── db.py
+│   ├── Dockerfile
+│   ├── main.py
+│   └── requirements.txt
+├── launch-service
+│   ├── db.py
+│   ├── Dockerfile
+│   ├── main.py
+│   └── requirements.txt
+├── nginx
+│   ├── Dockerfile
+│   └── nginx.conf
+├── portal
+│   ├── Dockerfile
+│   ├── index.html
+│   ├── package.json
+│   ├── public
+│   │   └── logos
+│   │       ├── BRAND_COLORS.md
+│   │       ├── Logo de RodelSoft en azul.png
+│   │       ├── Logo minimalista de RodelSoft.png
+│   │       ├── Logo moderno de RodelSoft.png
+│   │       ├── rodelsoft-hex-logo.png
+│   │       ├── rodelsoft-monogram-hex.png
+│   │       └── rodelsoft-monogram-hex.svg
+│   ├── src
+│   │   ├── App.css
+│   │   ├── App.jsx
+│   │   └── main.jsx
+│   └── vite.config.js
+├── prueba.html
+├── README.md
+├── rodelsoftAdmin-tree.txt
+├── Running
+└── test
+    ├── Diagrama sin título.drawio
+    └── test_e2e.py
+
+138 directories, 75 files
+

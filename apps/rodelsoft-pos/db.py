@@ -141,9 +141,9 @@ class Sale(Base):
     id = Column(Integer, primary_key=True, index=True)
 
     # Multi-tenant persistente
-    client_id = Column(Integer, nullable=True, index=True)
-    app_id = Column(Integer, nullable=True, index=True)
-    created_by = Column(String(100), nullable=True, index=True)
+    client_id = Column(Integer, nullable=False, index=True)
+    app_id = Column(Integer, nullable=False, index=True)
+    created_by = Column(String(100), nullable=False, index=True)
 
     total_amount = Column(Float, nullable=False)
     tax_amount = Column(Float, default=0.0)

@@ -18,6 +18,8 @@ services:
       - ./database/00-init.sql:/docker-entrypoint-initdb.d/00-init.sql
       - ./database/10-schema.sql:/docker-entrypoint-initdb.d/10-schema.sql
       - ./database/20-seed.sql:/docker-entrypoint-initdb.d/20-seed.sql
+      - ./database/30-pos-schema.sql:/docker-entrypoint-initdb.d/30-pos-schema.sql
+      - ./database/40-pos-seed.sql:/docker-entrypoint-initdb.d/40-pos-seed.sql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpass"]
       interval: 5s
@@ -90,11 +92,20 @@ services:
     container_name: rodelsoft-pos
     restart: always
     environment:
-      MYSQL_HOST: mysql
-      MYSQL_PORT: 3306
-      MYSQL_USER: ${MYSQL_USER:-proyecto_user}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-proyecto_pass}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-proyecto_db}
+      # DB de negocio POS
+      POS_MYSQL_HOST: mysql
+      POS_MYSQL_PORT: 3306
+      POS_MYSQL_USER: ${MYSQL_USER:-proyecto_user}
+      POS_MYSQL_PASSWORD: ${MYSQL_PASSWORD:-proyecto_pass}
+      POS_MYSQL_DATABASE: ${POS_MYSQL_DATABASE:-pos_db}
+
+      # DB de Control Plane / IAM (temporal mientras llega Fase 8)
+      CONTROL_MYSQL_HOST: mysql
+      CONTROL_MYSQL_PORT: 3306
+      CONTROL_MYSQL_USER: ${MYSQL_USER:-proyecto_user}
+      CONTROL_MYSQL_PASSWORD: ${MYSQL_PASSWORD:-proyecto_pass}
+      CONTROL_MYSQL_DATABASE: ${CONTROL_MYSQL_DATABASE:-proyecto_db}
+
       SECRET_KEY: ${SECRET_KEY:-miclave_secreta}
       ALGORITHM: ${ALGORITHM:-HS256}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-120}

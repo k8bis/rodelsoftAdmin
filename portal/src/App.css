@@ -103,13 +103,7 @@ button:active:not(:disabled) {
 
 /* Component styles migrated from App.jsx */
 .app-container { display: flex; flex-direction: column; min-height: 100vh; background-color: var(--light); color: var(--text); }
-.app-header { background-color: var(--primary); color: white; padding: 20px 0; box-shadow: 0 4px 12px rgba(0, 51, 102, 0.15); border-bottom: 4px solid var(--secondary); }
-.header-content { max-width: 1200px; padding: 0 24px; display: flex; justify-content: space-between; align-items: center; flex-wrap: nowrap; position: relative; }
-.logo-section { display: flex; align-items: center; gap: 16px;  min-width: 0; }
-.logo-section img { height: 50px; width: auto; }
-.title { margin: 0; font-size: 24px; font-weight: bold; letter-spacing: 0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.user-info { display: flex; align-items: center; gap: 12px; margin-left: auto; flex: 0 0 auto; }
-.user-greeting { font-size: 14px; font-weight: 500; opacity: 0.95; }
+.app-card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; gap: 12px; }
 .main-content { flex: 1; max-width: 1200px; width: 100%; margin: 0 auto; padding: 40px 24px; }
 .alert { padding: 14px 16px; border-radius: 8px; margin-bottom: 24px; font-size: 14px; font-weight: 500; }
 .alert.info { background-color: #E3F2FD; border: 1px solid var(--secondary); color: var(--primary); }
@@ -145,7 +139,7 @@ button:active:not(:disabled) {
 .app-card { background-color: white; border-radius: 12px; padding: 24px; box-shadow: 0 2px 8px rgba(0, 51, 102, 0.08); border: 1px solid var(--border); transition: all 0.3s ease; }
 .app-card:hover { box-shadow: 0 12px 24px rgba(0, 51, 102, 0.15); transform: translateY(-4px); }
 .app-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; gap: 12px; }
-.app-title { margin: 0; font-size: 18px; font-weight: bold; color: white; }
+.app-title { margin: 0; font-size: 18px; font-weight: bold; color: var(--primary); }
 .app-badge { background-color: var(--accent); color: white; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; white-space: nowrap; }
 .app-description { margin: 0 0 16px 0; font-size: 14px; color: var(--text-light); line-height: 1.5; }
 .app-metadata { background-color: var(--light); padding: 12px; border-radius: 8px; margin-bottom: 16px; font-size: 12px; }
@@ -157,3 +151,208 @@ button:active:not(:disabled) {
 .app-footer { background-color: var(--primary); color: white; text-align: center; padding: 20px; border-top: 1px solid var(--border); margin-top: auto; }
 .app-footer p { margin: 0; font-size: 12px; opacity: 0.8; }
 @media (max-width: 768px) { .main-content { padding: 24px 16px; } .apps-grid { grid-template-columns: 1fr; } }
+
+
+
+/* =========================
+   RodelSoft Shell Header v1
+   ========================= */
+.rs-shell-header {
+  background-color: var(--primary);
+  color: white;
+  padding: 16px 24px;
+  box-shadow: 0 4px 12px rgba(0, 51, 102, 0.15);
+  border-bottom: 4px solid var(--secondary);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.rs-shell-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.rs-shell-logo {
+  height: 50px;
+  width: auto;
+  display: block;
+}
+
+.rs-shell-brand {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.rs-shell-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+  line-height: 1.2;
+}
+
+.rs-shell-subtitle {
+  margin: 4px 0 0 0;
+  font-size: 13px;
+  opacity: 0.9;
+  line-height: 1.2;
+}
+
+.rs-shell-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.rs-shell-user {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* =========================
+   RodelSoft User Menu v1
+   ========================= */
+.rs-user-menu {
+  position: relative;
+}
+
+.rs-user-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #fff;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.rs-user-trigger:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.rs-user-dropdown {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  min-width: 220px;
+  background: #fff;
+  border: 1px solid rgba(0, 51, 102, 0.08);
+  border-radius: 12px;
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.14);
+  padding: 8px;
+  z-index: 100;
+}
+
+.rs-user-dropdown-item {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+  color: var(--primary);
+  cursor: pointer;
+}
+
+.rs-user-dropdown-item:hover {
+  background: #eef4ff;
+}
+
+.rs-user-dropdown-item-danger {
+  color: var(--error);
+  font-weight: 600;
+}
+
+.rs-user-dropdown-item-danger:hover {
+  background: #fef2f2;
+}
+
+/* ===== FASE 5A - FIX VISUAL DROPDOWN PORTAL ===== */
+
+/* Item base del dropdown */
+.rs-user-dropdown-item {
+  display: block;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font-size: 14px;
+  line-height: 1.2;
+  color: #1f3b64;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.rs-user-dropdown-item:hover {
+  background: #f3f7ff;
+  color: #0b4ea2;
+}
+
+.rs-user-dropdown-item-danger:hover {
+  background: #fef2f2 !important;
+  color: #b91c1c !important;
+}
+
+/* =========================
+   FASE 6B - Estado contractual por cliente
+   ========================= */
+
+.rs-client-status {
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.rs-status-active {
+  color: #15803d;
+}
+
+.rs-status-trial {
+  color: #1d4ed8;
+}
+
+.rs-status-expired {
+  color: #b91c1c;
+}
+
+.rs-status-suspended {
+  color: #991b1b;
+}
+
+.rs-status-missing {
+  color: #6b7280;
+}
+
+.rs-status-expiring {
+  color: #d97706 !important;
+}
+
+.rs-button-disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  box-shadow: none !important;
+  transform: none !important;
+}

@@ -5,7 +5,7 @@ from typing import Optional
 import jwt
 import requests
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from urllib.parse import urlencode
@@ -141,6 +141,32 @@ def user_has_permission(db, user_id: int, client_id: int, app_id: int) -> bool:
 
     return row is not None
 
+def has_active_subscription(db, client_id: int, app_id: int) -> bool:
+    """
+    Valida acceso contractual efectivo para la combinación cliente + app.
+    Reglas MVP:
+    - is_enabled = 1
+    - status IN ('trial', 'active')
+    - end_date nula o vigente
+    """
+    row = db.execute(
+        text("""
+            SELECT 1
+            FROM client_app_subscriptions
+            WHERE client_id = :client_id
+              AND app_id = :app_id
+              AND is_enabled = 1
+              AND status IN ('trial', 'active')
+              AND (end_date IS NULL OR end_date >= NOW())
+            LIMIT 1
+        """),
+        {
+            "client_id": client_id,
+            "app_id": app_id,
+        },
+    ).first()
+
+    return row is not None
 
 def get_app_metadata(db, app_id: int):
     """
@@ -293,6 +319,16 @@ def check_app_health(internal_url: str, health_path: str, timeout_seconds: int =
         print(f"[launch-service] Health check error: {e}")
         return False
 
+def redirect_to_portal_with_message(message: str, level: str = "warning") -> RedirectResponse:
+    """
+    Redirige al portal principal con mensaje UX amigable.
+    El portal ya soporta ?msg=... y ?msg_type=...
+    """
+    qs = urlencode({
+        "msg": message,
+        "msg_type": level,
+    })
+    return RedirectResponse(url=f"/?{qs}", status_code=302)
 
 # =========================================================
 # Endpoints
@@ -323,7 +359,17 @@ def launch(request: Request, app_id: int, client_id: int):
 
         # 2) Permiso
         if not user_has_permission(db, user_id, client_id, app_id):
-            raise HTTPException(status_code=403, detail="No tienes permiso para esta aplicación/cliente")
+            return redirect_to_portal_with_message(
+                "No tienes permiso para acceder a esta aplicación con el cliente seleccionado.",
+                "warning"
+            )
+
+        # 2.1) Suscripción activa (FASE 6D)
+        if not has_active_subscription(db, client_id, app_id):
+            return redirect_to_portal_with_message(
+                "La suscripción de esta aplicación no está activa para el cliente seleccionado.",
+                "warning"
+            )
 
         # 3) Metadata app
         app_row = get_app_metadata(db, app_id)
@@ -347,19 +393,12 @@ def launch(request: Request, app_id: int, client_id: int):
             f"entry_path={entry_path}, health_path={health_path}, launch_mode={launch_mode}"
         )
 
-        # 4) Health check
+        # 4) Health check (FASE 6E: UX amigable)
         healthy = check_app_health(internal_url, health_path, timeout_seconds=2)
         if not healthy:
-            return JSONResponse(
-                status_code=503,
-                content={
-                    "ok": False,
-                    "message": "La aplicación no está disponible por el momento",
-                    "app_id": app_id,
-                    "client_id": client_id,
-                    "app_name": app_row["name"],
-                    "slug": app_row["slug"],
-                },
+            return redirect_to_portal_with_message(
+                f"La aplicación {app_row['name']} no está disponible por el momento.",
+                "warning"
             )
 
         # 5) URL final según launch_mode
@@ -376,10 +415,39 @@ def launch(request: Request, app_id: int, client_id: int):
 
         return RedirectResponse(url=final_url, status_code=302)
 
-    except HTTPException:
+    except HTTPException as e:
+        # UX browser-friendly para launch-service:
+        # en vez de JSON crudo, regresar al portal con mensaje.
+        if e.status_code == 401:
+            return redirect_to_portal_with_message(
+                "Tu sesión no está activa o expiró. Inicia sesión nuevamente.",
+                "warning"
+            )
+
+        if e.status_code == 403:
+            return redirect_to_portal_with_message(
+                e.detail if isinstance(e.detail, str) else "No tienes acceso a esta aplicación.",
+                "warning"
+            )
+
+        if e.status_code == 404:
+            return redirect_to_portal_with_message(
+                "La aplicación solicitada no existe o ya no está disponible.",
+                "error"
+            )
+
+        if e.status_code == 503:
+            return redirect_to_portal_with_message(
+                e.detail if isinstance(e.detail, str) else "La aplicación no está disponible por el momento.",
+                "warning"
+            )
+
         raise
     except Exception as e:
         print(f"[launch-service] ERROR inesperado: {e}")
-        raise HTTPException(status_code=500, detail=f"Error interno launch-service: {str(e)}")
+        return redirect_to_portal_with_message(
+            "Ocurrió un error interno al intentar abrir la aplicación.",
+            "error"
+        )
     finally:
         db.close()

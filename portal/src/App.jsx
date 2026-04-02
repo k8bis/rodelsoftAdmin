@@ -9,6 +9,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [initializing, setInitializing] = useState(true);
   const [msgType, setMsgType] = useState("info"); // info, success, error, warning
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
 
   // Fuente maestra de apps + permisos desde App1
   const [rawApps, setRawApps] = useState([]);
@@ -20,12 +21,14 @@ export default function App() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const incomingMsg = params.get("msg");
+    const incomingMsgType = params.get("msg_type");
 
     if (incomingMsg) {
-      setMsg(incomingMsg);
-      setMsgType("info");
+      const allowedMsgTypes = ["info", "success", "warning", "error"];
+      const safeMsgType = allowedMsgTypes.includes(incomingMsgType) ? incomingMsgType : "info";
 
-      // limpia la URL para no dejar el mensaje pegado
+      setMsg(incomingMsg);
+      setMsgType(safeMsgType);
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, []);
@@ -46,6 +49,20 @@ export default function App() {
       window.removeEventListener("pageshow", handlePageShow);
     };
   }, []);
+
+  useEffect(() => {
+    const handleClickOutside = () => {
+      setUserMenuOpen(false);
+    };
+
+    if (userMenuOpen) {
+      document.addEventListener("click", handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener("click", handleClickOutside);
+    };
+  }, [userMenuOpen]);
 
   const restoreSession = async () => {
     setInitializing(true);
@@ -81,8 +98,8 @@ export default function App() {
 
         if (me.ok) {
           const meData = await me.json();
-          if (meData?.username) {
-            setUser(meData.username);
+          if (meData?.user) {
+            setUser(meData.user);
           }
         }
       } catch {
@@ -147,6 +164,7 @@ export default function App() {
     setSelectedClientByApp({});
     setMsg("");
     setMsgType("info");
+    setUserMenuOpen(false);
   };
 
   const fetchMyApps = async () => {
@@ -179,25 +197,92 @@ export default function App() {
     }
   };
 
-  // Si ya hay apps, autoselecciona el primer cliente por app
+  // Si ya hay apps, autoselecciona el primer cliente accesible por app;
+  // si no hay ninguno accesible, toma el primero.
   useEffect(() => {
     const next = { ...selectedClientByApp };
 
     rawApps.forEach((app) => {
       if (!app?.clients?.length) return;
-      if (!next[app.app_id]) next[app.app_id] = app.clients[0].id;
+      if (!next[app.app_id]) {
+        const firstAccessible = app.clients.find((c) => c.is_accessible);
+        next[app.app_id] = (firstAccessible || app.clients[0]).id;
+      }
     });
 
     setSelectedClientByApp(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(rawApps)]);
 
+  const getSelectedClient = (app) => {
+    const selectedId = selectedClientByApp[app.app_id];
+    return app.clients?.find((c) => c.id === Number(selectedId)) || app.clients?.[0] || null;
+  };
+
+  const getClientStatusLabel = (client) => {
+    if (!client) return "";
+
+    if (client.is_expiring_soon) return "VENCE PRONTO";
+
+    switch (client.subscription_status) {
+      case "active":
+        return "ACTIVA";
+      case "trial":
+        return "TRIAL";
+      case "expired":
+        return "VENCIDA";
+      case "suspended":
+        return "SUSPENDIDA";
+      case "missing":
+        return "SIN SUSCRIPCIÓN";
+      default:
+        return (client.subscription_status || "SIN ESTADO").toUpperCase();
+    }
+  };
+
+  const getClientStatusText = (client) => {
+    if (!client) return "";
+
+    if (client.is_accessible && client.is_expiring_soon) {
+      return `⚠️ Suscripción por vencer${client.subscription_end_date ? ` (${client.subscription_end_date})` : ""}`;
+    }
+
+    if (client.is_accessible && client.subscription_status === "active") {
+      return "✅ Suscripción activa";
+    }
+
+    if (client.is_accessible && client.subscription_status === "trial") {
+      return "🟡 Cliente en trial";
+    }
+
+    if (!client.is_accessible && client.subscription_status === "expired") {
+      return `⛔ Suscripción vencida${client.subscription_end_date ? ` (${client.subscription_end_date})` : ""}`;
+    }
+
+    if (!client.is_accessible && client.subscription_status === "suspended") {
+      return "⛔ Suscripción suspendida";
+    }
+
+    if (!client.is_accessible && client.subscription_status === "missing") {
+      return "⛔ Cliente sin suscripción configurada";
+    }
+
+    return `ℹ️ Estado: ${client.subscription_status || "desconocido"}`;
+  };
+
   const enterApp = (app) => {
     const app_id = app.app_id;
-    const client_id = selectedClientByApp[app_id];
+    const client = getSelectedClient(app);
+    const client_id = client?.id;
 
     if (!client_id) {
       setMsg(`Selecciona un cliente para app_id=${app_id}.`);
+      setMsgType("warning");
+      return;
+    }
+
+    if (!client.is_accessible) {
+      setMsg(`No puedes ingresar a ${app.app} con el cliente "${client.name}" porque su suscripción no está activa.`);
       setMsgType("warning");
       return;
     }
@@ -210,16 +295,18 @@ export default function App() {
   if (initializing) {
     return (
       <div className="app-container">
-        <header className="app-header">
-          <div className="logo-section">
+        <header className="rs-shell-header">
+          <div className="rs-shell-left">
             <picture>
               <source srcSet="/logos/rodelsoft-monogram-hex.svg" type="image/svg+xml" />
-              <img src="/logos/rodelsoft-monogram-hex.png" alt="RodelSoft" className="logo" />
+              <img src="/logos/rodelsoft-monogram-hex.png" alt="RodelSoft" className="rs-shell-logo" />
             </picture>
-            <h1 className="title">Portal RodelSoft</h1>
+            <div className="rs-shell-brand">
+              <h1 className="rs-shell-title">Portal RodelSoft</h1>
+              <p className="rs-shell-subtitle">Acceso central a tus aplicaciones</p>
+            </div>
           </div>
-          <div></div>
-          <div></div>
+          <div className="rs-shell-right"></div>
         </header>
 
         <main className="main-content">
@@ -243,19 +330,57 @@ export default function App() {
   return (
     <div className="app-container">
       {/* Header */}
-      <header className="app-header">
-        <div className="logo-section">
+      <header className="rs-shell-header">
+        <div className="rs-shell-left">
           <picture>
             <source srcSet="/logos/rodelsoft-monogram-hex.svg" type="image/svg+xml" />
-            <img src="/logos/rodelsoft-monogram-hex.png" alt="RodelSoft" className="logo" />
+            <img src="/logos/rodelsoft-monogram-hex.png" alt="RodelSoft" className="rs-shell-logo" />
           </picture>
-          <h1 className="title">Portal RodelSoft</h1>
+          <div className="rs-shell-brand">
+            <h1 className="rs-shell-title">Portal RodelSoft</h1>
+            <p className="rs-shell-subtitle">Acceso central a tus aplicaciones</p>
+          </div>
         </div>
-        <div></div>
-        <div className="user-info">
+
+        <div className="rs-shell-right">
           {authed && (
-            <div className="user-info">
-              <span>👤 {username}</span>
+            <div className="rs-user-menu">
+              <button
+                className="rs-user-trigger"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setUserMenuOpen((prev) => !prev);
+                }}
+                type="button"
+              >
+                👤 {username}
+              </button>
+
+              {userMenuOpen && (
+                <div
+                  className="rs-user-dropdown"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    className="rs-user-dropdown-item"
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      fetchMyApps();
+                    }}
+                  >
+                    🔄 Refrescar aplicaciones
+                  </button>
+                  <button
+                    className="rs-user-dropdown-item rs-user-dropdown-item-danger"
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      logout();
+                    }}
+                  >
+                    Cerrar sesión
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -314,16 +439,6 @@ export default function App() {
         ) : (
           /* Apps Panel */
           <>
-            <div className="toolbar">
-              <button className="button button-secondary" onClick={fetchMyApps}>
-                🔄 Refrescar aplicaciones
-              </button>
-              <div className="toolbar-spacer" />
-              <button className="button button-danger" onClick={logout}>
-                ← Salir
-              </button>
-            </div>
-
             <section className="section">
               <h2 className="section-title">Mis aplicaciones</h2>
 
@@ -335,7 +450,7 @@ export default function App() {
                 <div className="apps-grid">
                   {rawApps.map((app) => (
                     <div key={app.app_id} className="app-card">
-                      <div className="app-header">
+                      <div className="app-card-header">
                         <h3 className="app-title">{app.app}</h3>
                         <span className="app-badge">
                           {app.clients?.length || 0} cliente{app.clients?.length !== 1 ? "s" : ""}
@@ -346,34 +461,52 @@ export default function App() {
                         <p className="app-description">{app.description}</p>
                       )}
 
-                      {app.clients && app.clients.length > 0 && (
-                        <div className="form-group">
-                          <label className="label">Seleccionar cliente:</label>
-                          <select
-                            className="select"
-                            value={selectedClientByApp[app.app_id] || ""}
-                            onChange={(e) =>
-                              setSelectedClientByApp((prev) => ({
-                                ...prev,
-                                [app.app_id]: Number(e.target.value),
-                              }))
-                            }
-                          >
-                            {app.clients?.map((client) => (
-                              <option key={client.id} value={client.id}>
-                                {client.name}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      )}
+                      {app.clients && app.clients.length > 0 && (() => {
+                        const selectedClient = getSelectedClient(app);
+                        const canLaunch = !!selectedClient?.is_accessible;
 
-                      <button
-                        className="button button-primary button-fullwidth"
-                        onClick={() => enterApp(app)}
-                      >
-                        ▶ Entrar a {app.app}
-                      </button>
+                        return (
+                          <>
+                            <div className="form-group">
+                              <label className="label">Seleccionar cliente:</label>
+                              <select
+                                className="select"
+                                value={selectedClientByApp[app.app_id] || ""}
+                                onChange={(e) =>
+                                  setSelectedClientByApp((prev) => ({
+                                    ...prev,
+                                    [app.app_id]: Number(e.target.value),
+                                  }))
+                                }
+                              >
+                                {app.clients?.map((client) => (
+                                  <option key={client.id} value={client.id}>
+                                    {client.name} ({getClientStatusLabel(client)})
+                                  </option>
+                                ))}
+                              </select>
+
+                              {selectedClient && (
+                                <div
+                                  className={`rs-client-status rs-status-${selectedClient.subscription_status}${
+                                    selectedClient.is_expiring_soon ? " rs-status-expiring" : ""
+                                  }`}
+                                >
+                                  {getClientStatusText(selectedClient)}
+                                </div>
+                              )}
+                            </div>
+
+                            <button
+                              className={`button button-primary button-fullwidth${!canLaunch ? " rs-button-disabled" : ""}`}
+                              onClick={() => enterApp(app)}
+                              disabled={!canLaunch}
+                            >
+                              {canLaunch ? `▶ Entrar a ${app.app}` : "No disponible"}
+                            </button>
+                          </>
+                        );
+                      })()}
                     </div>
                   ))}
                 </div>

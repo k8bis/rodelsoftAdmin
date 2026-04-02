@@ -1,0 +1,16 @@
+rodolfo@RodelSoft-lnx01:~/Rodel/ext_apps$ tree -L 5
+.
+└── rodelsoft
+    └── notes-external
+        ├── docker-compose.yml
+        ├── Dockerfile
+        ├── main.py
+        ├── requirements.txt
+        ├── static
+        │   ├── notes.css
+        │   └── notes.js
+        └── templates
+            └── notes_template.html
+
+5 directories, 7 files
+

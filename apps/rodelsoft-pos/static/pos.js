@@ -6,8 +6,11 @@ let cart = {};
 
 const APP_BASE_PATH = window.POS_CONFIG?.APP_BASE_PATH || "/pos";
 const APP_MENU_URL = window.POS_CONFIG?.APP_MENU_URL || "/";
-const LOGOUT_REDIRECT_URL = "/app1/logout";
+const LOGOUT_REDIRECT_URL = window.POS_CONFIG?.LOGOUT_REDIRECT_URL || "/";
 const LOGIN_URL = "/";
+
+// Logout REAL centralizado (NO usar LOGOUT_REDIRECT_URL para POST)
+const CENTRAL_LOGOUT_URL = "/app1/logout";
 
 // =========================
 // Contexto actual (app_id / client_id)
@@ -32,6 +35,7 @@ console.log("APP_BASE_PATH =", APP_BASE_PATH);
 console.log("API_BASE =", API_BASE);
 console.log("APP_MENU_URL =", APP_MENU_URL);
 console.log("LOGOUT_REDIRECT_URL =", LOGOUT_REDIRECT_URL);
+console.log("CENTRAL_LOGOUT_URL =", CENTRAL_LOGOUT_URL);
 console.log("APP_ID =", APP_ID);
 console.log("CLIENT_ID =", CLIENT_ID);
 console.log("CONTEXT_SUFFIX =", CONTEXT_SUFFIX);
@@ -423,8 +427,30 @@ function setupUserMenu() {
     }
 
     if (logoutBtn) {
-        logoutBtn.addEventListener("click", () => {
-            window.location.href = LOGOUT_REDIRECT_URL;
+        logoutBtn.addEventListener("click", async () => {
+            try {
+                console.log("Ejecutando logout centralizado en:", CENTRAL_LOGOUT_URL);
+
+                const response = await fetch(CENTRAL_LOGOUT_URL, {
+                    method: "POST",
+                    credentials: "include",
+                    cache: "no-store",
+                    redirect: "follow"
+                });
+
+                console.log("logout response.status =", response.status);
+                console.log("logout response.redirected =", response.redirected);
+                console.log("logout response.url =", response.url);
+
+                if (!response.ok && response.status !== 302) {
+                    console.warn("Logout devolvió estado inesperado:", response.status);
+                }
+            } catch (error) {
+                console.warn("Error ejecutando logout centralizado:", error);
+            }
+
+            // Siempre regresar al login/portal después de invalidar sesión
+            window.location.replace(LOGIN_URL);
         });
     }
 }

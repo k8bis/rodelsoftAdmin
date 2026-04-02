@@ -4,7 +4,8 @@ import time
 import jwt
 from datetime import datetime, timedelta
 from fastapi import FastAPI, Depends, HTTPException, Header, Response, Request
-from fastapi.responses import RedirectResponse  
+from fastapi.responses import RedirectResponse
+from urllib.parse import urlencode
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -43,6 +44,52 @@ def verify_token(request: Request, authorization: str | None = Header(default=No
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Token inválido")
 
+def has_permission(db: Session, username: str, app_id: int, client_id: int) -> bool:
+    q = text("""
+        SELECT 1
+        FROM permissions p
+        JOIN users u ON u.id = p.user_id
+        WHERE u.username = :username
+          AND p.app_id = :app_id
+          AND p.client_id = :client_id
+        LIMIT 1
+    """)
+    row = db.execute(q, {
+        "username": username,
+        "app_id": app_id,
+        "client_id": client_id
+    }).fetchone()
+    return row is not None
+
+
+def has_active_subscription(db: Session, client_id: int, app_id: int) -> bool:
+    q = text("""
+        SELECT 1
+        FROM client_app_subscriptions s
+        WHERE s.client_id = :client_id
+          AND s.app_id = :app_id
+          AND s.is_enabled = 1
+          AND s.status IN ('trial', 'active')
+          AND (s.end_date IS NULL OR s.end_date >= NOW())
+        LIMIT 1
+    """)
+    row = db.execute(q, {
+        "client_id": client_id,
+        "app_id": app_id
+    }).fetchone()
+    return row is not None
+
+def redirect_to_portal_with_message(message: str, level: str = "warning") -> RedirectResponse:
+    """
+    Redirige al portal principal (/) con mensaje UX amigable.
+    El portal ya lee ?msg=...; añadimos también msg_type por compatibilidad futura.
+    """
+    qs = urlencode({
+        "msg": message,
+        "msg_type": level
+    })
+    return RedirectResponse(url=f"/?{qs}", status_code=302)
+
 # Espera a que la DB esté lista (sin tumbar el contenedor)
 @app.on_event("startup")
 def _startup():
@@ -73,8 +120,11 @@ def root(
     x_app_id: int | None = Header(alias="X-App-Id", default=None),
     x_client_id: int | None = Header(alias="X-Client-Id", default=None),
 ):
-    # Validación manual para UX browser:
-    # si no hay token válido, redirigir al login en lugar de devolver JSON 401
+    """
+    Endpoint browser-friendly:
+    - Si falta autenticación o el acceso no es válido, redirige al portal con mensaje amigable.
+    - Mantiene la seguridad real en backend.
+    """
     token = None
 
     # 1) Header Authorization (preferido; Nginx lo inyecta desde la cookie)
@@ -86,15 +136,24 @@ def root(
         token = request.cookies.get("jwt")
 
     if not token:
-        return RedirectResponse(url="/", status_code=302)
+        return redirect_to_portal_with_message(
+            "Tu sesión no está activa. Inicia sesión para continuar.",
+            "warning"
+        )
 
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user = payload["sub"]
     except jwt.ExpiredSignatureError:
-        return RedirectResponse(url="/", status_code=302)
+        return redirect_to_portal_with_message(
+            "Tu sesión expiró. Inicia sesión nuevamente.",
+            "warning"
+        )
     except jwt.InvalidTokenError:
-        return RedirectResponse(url="/", status_code=302)
+        return redirect_to_portal_with_message(
+            "Tu sesión no es válida. Inicia sesión nuevamente.",
+            "warning"
+        )
 
     app_id = x_app_id
     client_id = x_client_id
@@ -111,19 +170,22 @@ def root(
             client_id = int(q)
 
     if not app_id or not client_id:
-        raise HTTPException(status_code=400, detail="Faltan app_id o client_id")
+        return redirect_to_portal_with_message(
+            "No se pudo abrir la aplicación porque faltan datos de contexto.",
+            "warning"
+        )
 
-    q = text("""
-      SELECT 1
-      FROM permissions p
-      JOIN users u ON u.id = p.user_id
-      WHERE u.username = :username AND p.app_id = :app_id AND p.client_id = :client_id
-      LIMIT 1
-    """)
-    ok = db.execute(q, {"username": user, "app_id": app_id, "client_id": client_id}).fetchone()
+    if not has_permission(db, user, app_id, client_id):
+        return redirect_to_portal_with_message(
+            "No tienes permiso para acceder a esta aplicación con el cliente seleccionado.",
+            "warning"
+        )
 
-    if not ok:
-        raise HTTPException(status_code=403, detail="Sin permiso para esa app/cliente")
+    if not has_active_subscription(db, client_id, app_id):
+        return redirect_to_portal_with_message(
+            "La suscripción de esta aplicación no está activa para el cliente seleccionado.",
+            "warning"
+        )
 
     return {
         "message": "App Hija 1 funcionando!",
@@ -249,34 +311,93 @@ def my_apps(user: str = Depends(verify_token), db: Session = Depends(get_db)):
             a.entry_path AS entry_path,
             a.launch_mode AS launch_mode,
             c.id AS client_id,
-            c.name AS client
+            c.name AS client,
+            s.status AS subscription_status,
+            s.start_date AS subscription_start_date,
+            s.end_date AS subscription_end_date,
+            s.is_enabled AS subscription_enabled
         FROM permissions p
-        JOIN applications a ON p.app_id = a.id
-        JOIN clients c ON p.client_id = c.id
-        JOIN users u ON p.user_id = u.id
+        JOIN applications a
+          ON p.app_id = a.id
+        JOIN clients c
+          ON p.client_id = c.id
+        JOIN users u
+          ON p.user_id = u.id
+        LEFT JOIN client_app_subscriptions s
+          ON s.client_id = p.client_id
+         AND s.app_id = p.app_id
         WHERE u.username = :username
         ORDER BY a.name, c.name
     """)
 
-    rows = db.execute(q, {"username": user}).fetchall()
+    rows = db.execute(q, {"username": user}).mappings().all()
 
     grouped = {}
-    for app_id, app, slug, description, public_url, entry_path, launch_mode, client_id, client in rows:
+    now = datetime.utcnow()
+
+    for row in rows:
+        app_id = row["app_id"]
+
         if app_id not in grouped:
             grouped[app_id] = {
-                "app_id": app_id,
-                "app": app,
-                "slug": slug,
-                "description": description,
-                "public_url": public_url,
-                "entry_path": entry_path or "/",
-                "launch_mode": launch_mode or "redirect",
+                "app_id": row["app_id"],
+                "app": row["app"],
+                "slug": row["slug"],
+                "description": row["description"],
+                "public_url": row["public_url"],
+                "entry_path": row["entry_path"] or "/",
+                "launch_mode": row["launch_mode"] or "redirect",
                 "clients": [],
             }
 
+        # Estado contractual proyectado
+        raw_status = row["subscription_status"]
+        status = raw_status.strip().lower() if raw_status else "missing"
+
+        start_date = row["subscription_start_date"]
+        end_date = row["subscription_end_date"]
+        subscription_enabled = bool(row["subscription_enabled"]) if row["subscription_enabled"] is not None else False
+
+        # Expira pronto: 0 a 7 días
+        is_expiring_soon = False
+        if end_date:
+            try:
+                if hasattr(end_date, "hour"):
+                    delta_days = (end_date - now).days
+                    is_not_expired = end_date >= now
+                else:
+                    delta_days = (end_date - now.date()).days
+                    is_not_expired = end_date >= now.date()
+
+                if is_not_expired and 0 <= delta_days <= 7:
+                    is_expiring_soon = True
+            except Exception:
+                is_expiring_soon = False
+
+        # Acceso efectivo
+        if end_date:
+            if hasattr(end_date, "hour"):
+                not_expired = end_date >= now
+            else:
+                not_expired = end_date >= now.date()
+        else:
+            not_expired = True
+
+        is_accessible = (
+            subscription_enabled
+            and status in ("trial", "active")
+            and not_expired
+        )
+
         grouped[app_id]["clients"].append({
-            "id": client_id,
-            "name": client
+            "id": row["client_id"],
+            "name": row["client"],
+            "subscription_status": status,
+            "subscription_start_date": str(start_date) if start_date else None,
+            "subscription_end_date": str(end_date) if end_date else None,
+            "subscription_enabled": subscription_enabled,
+            "is_accessible": is_accessible,
+            "is_expiring_soon": is_expiring_soon,
         })
 
     return list(grouped.values())
@@ -296,15 +417,10 @@ def entry(
     if not x_app_id or not x_client_id:
         raise HTTPException(status_code=400, detail="Faltan X-App-Id o X-Client-Id")
     # Validar que el usuario tenga ese permiso
-    q = text("""
-      SELECT 1
-      FROM permissions p
-      JOIN users u ON u.id = p.user_id
-      WHERE u.username = :username AND p.app_id = :app_id AND p.client_id = :client_id
-      LIMIT 1
-    """)
-    ok = db.execute(q, {"username": user, "app_id": x_app_id, "client_id": x_client_id}).fetchone()
-    if not ok:
+    if not has_permission(db, user, x_app_id, x_client_id):
         raise HTTPException(status_code=403, detail="Sin permiso para esa app/cliente")
+
+    if not has_active_subscription(db, x_client_id, x_app_id):
+        raise HTTPException(status_code=403, detail="Suscripción inactiva para esa app/cliente")
     
     return {"ok": True, "user": user, "app_id": x_app_id, "client_id": x_client_id, "note": "App1 /entry OK"}
