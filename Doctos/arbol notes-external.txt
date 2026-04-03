@@ -1,16 +1,18 @@
-rodolfo@RodelSoft-lnx01:~/Rodel/ext_apps$ tree -L 5
+rodolfo@RodelSoft-lnx01:~/Rodel/ext_apps$ tree -L 5 -a
 .
 └── rodelsoft
     └── notes-external
         ├── docker-compose.yml
         ├── Dockerfile
+        ├── .env
         ├── main.py
         ├── requirements.txt
         ├── static
         │   ├── notes.css
-        │   └── notes.js
+        │   ├── notes.js
+        │   └── shared-shell.css
         └── templates
             └── notes_template.html
 
-5 directories, 7 files
+5 directories, 9 files
 

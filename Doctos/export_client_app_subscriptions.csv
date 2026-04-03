@@ -1,0 +1,4 @@
+id,client_id,app_id,status,plan_code,start_date,end_date,is_enabled,created_at,updated_at,created_by,notes
+1,4,3,active,mvp,"2026-04-01 03:48:50",NULL,1,"2026-04-01 03:48:50","2026-04-01 03:48:50",system,"POS habilitado MVP"
+2,4,4,active,mvp,"2026-04-01 03:48:50",NULL,1,"2026-04-01 03:48:50","2026-04-01 03:48:50",system,"Notes External habilitado MVP"
+3,1,1,active,mvp,"2026-04-01 03:48:50",NULL,1,"2026-04-01 00:00:00","2026-04-01 18:33:28",system,"prueba de suscripcion activa"

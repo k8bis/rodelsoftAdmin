@@ -77,7 +77,7 @@ class SaleResponse(BaseModel):
     created_at: datetime
     items: List[SaleItemResponse]
 
-SECRET_KEY = os.getenv("SECRET_KEY", "miclave_secreta")
+SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 
 app = FastAPI(title="RodelSoft - POS")

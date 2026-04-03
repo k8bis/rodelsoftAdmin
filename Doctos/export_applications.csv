@@ -1,0 +1,5 @@
+id,name,slug,description,internal_url,public_url,entry_path,launch_mode,created_at,updated_at,health_path,is_active
+1,Rodel-RealState,rodel-realstate,"App de RodelSoft para la gestion de rentas y ventas de bienes raices",http://app-hija-1:8000,/app1/,/,redirect,"2026-03-21 20:06:09","2026-03-26 18:57:35",/health,1
+2,Rodel-Garage,rodel-garage,"App de RodelSoft para la gestion de mantenimiento y servicio de autos",http://app-hija-2:3002,/app2/,/,redirect,"2026-03-21 20:06:09","2026-03-26 18:57:35",/health,1
+3,"RodelSoft POS",rodelsoft-pos,"App de RodelSoft para Punto de venta",http://rodelsoft-pos:8000,/pos/,/,redirect,"2026-03-21 00:00:00","2026-04-01 18:54:52",/health,1
+4,"RodelSoft Notes External",rodelsoft-notes-external,"Primera app externa real fuera del stack principal",http://192.168.100.26:8010,/notes/,/,dynamic_proxy,"2026-03-30 05:50:43","2026-03-31 00:10:49",/health,1

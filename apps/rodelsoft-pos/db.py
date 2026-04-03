@@ -10,7 +10,7 @@ from sqlalchemy.sql import func
 POS_MYSQL_HOST = os.getenv("POS_MYSQL_HOST", "mysql")
 POS_MYSQL_PORT = int(os.getenv("POS_MYSQL_PORT", "3306"))
 POS_MYSQL_USER = os.getenv("POS_MYSQL_USER", "proyecto_user")
-POS_MYSQL_PASSWORD = os.getenv("POS_MYSQL_PASSWORD", "proyecto_pass")
+POS_MYSQL_PASSWORD = os.getenv("POS_MYSQL_PASSWORD")
 POS_MYSQL_DATABASE = os.getenv("POS_MYSQL_DATABASE", "pos_db")
 
 POS_DATABASE_URL = (
@@ -24,7 +24,7 @@ POS_DATABASE_URL = (
 CONTROL_MYSQL_HOST = os.getenv("CONTROL_MYSQL_HOST", "mysql")
 CONTROL_MYSQL_PORT = int(os.getenv("CONTROL_MYSQL_PORT", "3306"))
 CONTROL_MYSQL_USER = os.getenv("CONTROL_MYSQL_USER", "proyecto_user")
-CONTROL_MYSQL_PASSWORD = os.getenv("CONTROL_MYSQL_PASSWORD", "proyecto_pass")
+CONTROL_MYSQL_PASSWORD = os.getenv("CONTROL_MYSQL_PASSWORD")
 CONTROL_MYSQL_DATABASE = os.getenv("CONTROL_MYSQL_DATABASE", "proyecto_db")
 
 CONTROL_DATABASE_URL = (

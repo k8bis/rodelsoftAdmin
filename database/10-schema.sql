@@ -38,9 +38,11 @@ CREATE TABLE IF NOT EXISTS applications (
   internal_url VARCHAR(255) NOT NULL,
   public_url VARCHAR(255) NOT NULL,
   entry_path VARCHAR(120) NOT NULL DEFAULT '/',
-  launch_mode ENUM('redirect','proxy') NOT NULL DEFAULT 'redirect',
+  launch_mode ENUM('redirect','dynamic_proxy') NOT NULL DEFAULT 'redirect',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  health_path VARCHAR(120) NOT NULL DEFAULT '/health',
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
   UNIQUE KEY uniq_app_name (name),
   UNIQUE KEY uniq_app_slug (slug)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

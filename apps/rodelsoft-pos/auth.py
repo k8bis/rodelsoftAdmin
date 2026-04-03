@@ -2,7 +2,7 @@ import os
 import jwt
 from fastapi import Header, Request, HTTPException
 
-SECRET_KEY = os.getenv("SECRET_KEY", "miclave_secreta")
+SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 
 

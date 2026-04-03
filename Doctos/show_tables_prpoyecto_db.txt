@@ -3,6 +3,7 @@
 'clients'
 'permissions'
 'system_admins'
+'user_client_memberships'
 'users'
 'v_user_permissions'
 

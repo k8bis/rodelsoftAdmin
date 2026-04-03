@@ -1,6 +1,7 @@
 import os
 from urllib.parse import urljoin
 
+import jwt
 import requests
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import Response, JSONResponse
@@ -9,6 +10,12 @@ from sqlalchemy import text
 from db import SessionLocal
 
 app = FastAPI(title="RodelSoft Dynamic App Router")
+
+SECRET_KEY = os.getenv("SECRET_KEY")
+ALGORITHM = os.getenv("ALGORITHM", "HS256")
+
+if not SECRET_KEY:
+    raise RuntimeError("SECRET_KEY no configurada en dynamic-app-router")
 
 HOP_BY_HOP_HEADERS = {
     "connection",
@@ -100,6 +107,127 @@ def rewrite_location(location: str, prefix: str) -> str:
 
     return location
 
+def extract_token(request: Request) -> str | None:
+    auth_header = request.headers.get("authorization")
+    if auth_header and auth_header.lower().startswith("bearer "):
+        return auth_header.split(" ", 1)[1].strip()
+
+    cookie_token = request.cookies.get("jwt")
+    if cookie_token:
+        return cookie_token.strip()
+
+    return None
+
+
+def get_current_user(db, request: Request):
+    token = extract_token(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="No autenticado")
+
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expirado")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Token inválido")
+
+    username = payload.get("sub")
+    if not username:
+        raise HTTPException(status_code=401, detail="Token inválido: falta sub")
+
+    user = db.execute(
+        text("""
+            SELECT id, username
+            FROM users
+            WHERE username = :username
+            LIMIT 1
+        """),
+        {"username": username},
+    ).mappings().first()
+
+    if not user:
+        raise HTTPException(status_code=401, detail="Usuario no encontrado")
+
+    return user
+
+
+def user_has_active_membership(db, user_id: int, client_id: int) -> bool:
+    row = db.execute(
+        text("""
+            SELECT 1
+            FROM user_client_memberships
+            WHERE user_id = :user_id
+              AND client_id = :client_id
+              AND status = 'active'
+            LIMIT 1
+        """),
+        {
+            "user_id": user_id,
+            "client_id": client_id,
+        },
+    ).first()
+
+    return row is not None
+
+
+def user_has_permission(db, user_id: int, client_id: int, app_id: int) -> bool:
+    row = db.execute(
+        text("""
+            SELECT 1
+            FROM permissions
+            WHERE user_id = :user_id
+              AND client_id = :client_id
+              AND app_id = :app_id
+            LIMIT 1
+        """),
+        {
+            "user_id": user_id,
+            "client_id": client_id,
+            "app_id": app_id,
+        },
+    ).first()
+
+    return row is not None
+
+
+def has_active_subscription(db, client_id: int, app_id: int) -> bool:
+    row = db.execute(
+        text("""
+            SELECT 1
+            FROM client_app_subscriptions
+            WHERE client_id = :client_id
+              AND app_id = :app_id
+              AND is_enabled = 1
+              AND status IN ('trial', 'active')
+              AND (end_date IS NULL OR end_date >= NOW())
+            LIMIT 1
+        """),
+        {
+            "client_id": client_id,
+            "app_id": app_id,
+        },
+    ).first()
+
+    return row is not None
+
+
+def is_html_navigation_request(request: Request, tail_path: str) -> bool:
+    """
+    Detecta si la petición parece ser la navegación principal HTML.
+    No se usa para assets.
+    """
+    if request.method.upper() != "GET":
+        return False
+
+    accept = (request.headers.get("accept") or "").lower()
+
+    if "text/html" in accept:
+        return True
+
+    if not tail_path:
+        return True
+
+    return False
 
 @app.get("/health")
 def health():
@@ -120,6 +248,36 @@ async def dynamic_proxy(request: Request, slug: str, tail_path: str = ""):
             raise HTTPException(status_code=500, detail="La aplicación no tiene internal_url configurado")
 
         prefix = f"/ext/{slug}"
+        
+        # Blindaje FASE 6.0.A:
+        # Solo exigir contexto/seguridad en navegación HTML principal.
+        if is_html_navigation_request(request, tail_path):
+            client_id_raw = request.query_params.get("client_id")
+            app_id_raw = request.query_params.get("app_id")
+
+            if not client_id_raw or not app_id_raw:
+                raise HTTPException(status_code=400, detail="Falta contexto app_id/client_id")
+
+            try:
+                client_id = int(client_id_raw)
+                requested_app_id = int(app_id_raw)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Contexto app_id/client_id inválido")
+
+            if requested_app_id != app_id:
+                raise HTTPException(status_code=400, detail="app_id no corresponde al slug solicitado")
+
+            user = get_current_user(db, request)
+            user_id = int(user["id"])
+
+            if not user_has_active_membership(db, user_id, client_id):
+                raise HTTPException(status_code=403, detail="Sin membresía activa para ese cliente")
+
+            if not user_has_permission(db, user_id, client_id, app_id):
+                raise HTTPException(status_code=403, detail="Sin permiso para esa app/cliente")
+
+            if not has_active_subscription(db, client_id, app_id):
+                raise HTTPException(status_code=403, detail="Suscripción inactiva para esa app/cliente")
 
         # Si entra a /ext/<slug> o /ext/<slug>/ -> respetar raíz de la app
         target_url = build_target_url(

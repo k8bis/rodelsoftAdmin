@@ -7,10 +7,10 @@ services:
     container_name: proyecto_mysql
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-proyecto_db}
       MYSQL_USER: ${MYSQL_USER:-proyecto_user}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-proyecto_pass}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
     ports:
       - "${MYSQL_PORT:-3307}:3306"
     volumes:
@@ -20,8 +20,9 @@ services:
       - ./database/20-seed.sql:/docker-entrypoint-initdb.d/20-seed.sql
       - ./database/30-pos-schema.sql:/docker-entrypoint-initdb.d/30-pos-schema.sql
       - ./database/40-pos-seed.sql:/docker-entrypoint-initdb.d/40-pos-seed.sql
+      - ./database/50-migrate_fase6_subscriptions.sql:/docker-entrypoint-initdb.d/50-migrate_fase6_subscriptions.sql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpass"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$$MYSQL_ROOT_PASSWORD || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -35,9 +36,9 @@ services:
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
       MYSQL_USER: ${MYSQL_USER:-proyecto_user}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-proyecto_pass}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-proyecto_db}
-      SECRET_KEY: ${SECRET_KEY:-miclave_secreta}
+      SECRET_KEY: ${SECRET_KEY}
       ALGORITHM: ${ALGORITHM:-HS256}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-120}
       DB_MAX_RETRIES: 30
@@ -56,9 +57,9 @@ services:
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
       MYSQL_USER: ${MYSQL_USER:-proyecto_user}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-proyecto_pass}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-proyecto_db}
-      SECRET_KEY: ${SECRET_KEY:-miclave_secreta}
+      SECRET_KEY: ${SECRET_KEY}
       ALGORITHM: ${ALGORITHM:-HS256}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-120}
       DB_MAX_RETRIES: 30
@@ -77,9 +78,9 @@ services:
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
       MYSQL_USER: ${MYSQL_USER:-proyecto_user}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-proyecto_pass}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-proyecto_db}
-      SECRET_KEY: ${SECRET_KEY:-miclave_secreta}
+      SECRET_KEY: ${SECRET_KEY}
       ALGORITHM: ${ALGORITHM:-HS256}
     depends_on:
       mysql:
@@ -92,21 +93,17 @@ services:
     container_name: rodelsoft-pos
     restart: always
     environment:
-      # DB de negocio POS
       POS_MYSQL_HOST: mysql
       POS_MYSQL_PORT: 3306
       POS_MYSQL_USER: ${MYSQL_USER:-proyecto_user}
-      POS_MYSQL_PASSWORD: ${MYSQL_PASSWORD:-proyecto_pass}
+      POS_MYSQL_PASSWORD: ${MYSQL_PASSWORD}
       POS_MYSQL_DATABASE: ${POS_MYSQL_DATABASE:-pos_db}
-
-      # DB de Control Plane / IAM (temporal mientras llega Fase 8)
       CONTROL_MYSQL_HOST: mysql
       CONTROL_MYSQL_PORT: 3306
       CONTROL_MYSQL_USER: ${MYSQL_USER:-proyecto_user}
-      CONTROL_MYSQL_PASSWORD: ${MYSQL_PASSWORD:-proyecto_pass}
-      CONTROL_MYSQL_DATABASE: ${CONTROL_MYSQL_DATABASE:-proyecto_db}
-
-      SECRET_KEY: ${SECRET_KEY:-miclave_secreta}
+      CONTROL_MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      CONTROL_MYSQL_DATABASE: ${MYSQL_DATABASE:-proyecto_db}
+      SECRET_KEY: ${SECRET_KEY}
       ALGORITHM: ${ALGORITHM:-HS256}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-120}
       DB_MAX_RETRIES: 30
@@ -117,15 +114,6 @@ services:
     ports:
       - "${POS_PORT:-8001}:8000"
 
-  portal:
-    build: ./portal
-    container_name: portal
-    restart: always
-    depends_on:
-      - app-hija-1
-      - app-hija-2
-      - rodelsoft-pos
-
   authz-service:
     build: ./authz-service
     container_name: authz_service
@@ -134,14 +122,18 @@ services:
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
       MYSQL_USER: ${MYSQL_USER:-proyecto_user}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-proyecto_pass}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-proyecto_db}
+      AUTHZ_ADMIN_KEY: ${AUTHZ_ADMIN_KEY}
+      AUTHZ_ENABLE_DOCS: ${AUTHZ_ENABLE_DOCS:-false}
       DB_MAX_RETRIES: 30
       DB_RETRY_DELAY: 2
     depends_on:
       mysql:
         condition: service_healthy
-  
+    ports:
+      - "8400:8100"
+
   dynamic-app-router:
     build: ./dynamic-app-router
     container_name: dynamic_app_router
@@ -150,8 +142,10 @@ services:
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
       MYSQL_USER: ${MYSQL_USER:-proyecto_user}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-proyecto_pass}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-proyecto_db}
+      SECRET_KEY: ${SECRET_KEY}
+      ALGORITHM: ${ALGORITHM:-HS256}
       DB_MAX_RETRIES: 30
       DB_RETRY_DELAY: 2
     depends_on:
@@ -160,16 +154,28 @@ services:
     ports:
       - "8300:8300"
 
+  portal:
+    build: ./portal
+    container_name: portal
+    restart: always
+    depends_on:
+      - app-hija-1
+      - launch-service
+      - dynamic-app-router
+    ports:
+      - "3000:80"
+
   nginx:
     build: ./nginx
     container_name: proyecto_nginx
     restart: always
-    ports:
-      - "${NGINX_PORT:-8080}:8080"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
+      - portal
       - app-hija-1
       - app-hija-2
       - rodelsoft-pos
+      - launch-service
+      - authz-service
       - dynamic-app-router
+    ports:
+      - "${NGINX_PORT:-8080}:8080"

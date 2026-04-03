@@ -15,14 +15,14 @@ from urllib.parse import urlencode
 # =========================================================
 PORTAL_ROOT_URL = os.getenv("PORTAL_ROOT_URL", "/")
 
-SECRET_KEY = os.getenv("SECRET_KEY", "supersecret")
+SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 
 DB_HOST = os.getenv("MYSQL_HOST", "mysql")
 DB_PORT = os.getenv("MYSQL_PORT", "3306")
 DB_NAME = os.getenv("MYSQL_DATABASE", "proyecto_db")
 DB_USER = os.getenv("MYSQL_USER", "root")
-DB_PASSWORD = os.getenv("MYSQL_PASSWORD", "rootpass")
+DB_PASSWORD = os.getenv("MYSQL_PASSWORD")
 
 DATABASE_URL = (
     f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
@@ -137,6 +137,24 @@ def user_has_permission(db, user_id: int, client_id: int, app_id: int) -> bool:
             "user_id": user_id,
             "client_id": client_id,
             "app_id": app_id,
+        },
+    ).first()
+
+    return row is not None
+
+def user_has_active_membership(db, user_id: int, client_id: int) -> bool:
+    row = db.execute(
+        text("""
+            SELECT 1
+            FROM user_client_memberships
+            WHERE user_id = :user_id
+              AND client_id = :client_id
+              AND status = 'active'
+            LIMIT 1
+        """),
+        {
+            "user_id": user_id,
+            "client_id": client_id,
         },
     ).first()
 
@@ -350,10 +368,12 @@ def launch(request: Request, app_id: int, client_id: int):
     """
     Flujo:
     1) Validar JWT / usuario
-    2) Validar permiso (user_id + client_id + app_id)
-    3) Consultar app dinámica desde BD
-    4) Health check a internal_url + health_path
-    5) Redirigir a public_url + entry_path + query params
+    2) Validar membresía activa
+    3) Validar permiso
+    4) Validar suscripción
+    5) Consultar app dinámica desde BD
+    6) Health check
+    7) Redirigir
     """
     db = SessionLocal()
     try:
@@ -363,21 +383,28 @@ def launch(request: Request, app_id: int, client_id: int):
 
         print(f"[launch-service] Launch solicitado por user_id={user_id}, app_id={app_id}, client_id={client_id}")
 
-        # 2) Permiso
+        # 2) Membresía activa
+        if not user_has_active_membership(db, user_id, client_id):
+            return redirect_to_portal_with_message(
+                "Tu usuario no tiene membresía activa para el cliente seleccionado.",
+                "warning"
+            )
+        
+        # 3) Permiso
         if not user_has_permission(db, user_id, client_id, app_id):
             return redirect_to_portal_with_message(
                 "No tienes permiso para acceder a esta aplicación con el cliente seleccionado.",
                 "warning"
             )
 
-        # 2.1) Suscripción activa (FASE 6D)
+        # 3.1) Suscripción activa (FASE 6D)
         if not has_active_subscription(db, client_id, app_id):
             return redirect_to_portal_with_message(
                 "La suscripción de esta aplicación no está activa para el cliente seleccionado.",
                 "warning"
             )
 
-        # 3) Metadata app
+        # 5) Metadata app
         app_row = get_app_metadata(db, app_id)
 
         internal_url = (app_row["internal_url"] or "").strip()
@@ -399,7 +426,7 @@ def launch(request: Request, app_id: int, client_id: int):
             f"entry_path={entry_path}, health_path={health_path}, launch_mode={launch_mode}"
         )
 
-        # 4) Health check (FASE 6E: UX amigable)
+        # 6) Health check (FASE 6E: UX amigable)
         healthy = check_app_health(internal_url, health_path, timeout_seconds=2)
         if not healthy:
             return redirect_to_portal_with_message(
@@ -407,7 +434,7 @@ def launch(request: Request, app_id: int, client_id: int):
                 "warning"
             )
 
-        # 5) URL final según launch_mode
+        # 7) URL final según launch_mode
         if launch_mode == "dynamic_proxy":
             slug = (app_row["slug"] or "").strip()
             if not slug:

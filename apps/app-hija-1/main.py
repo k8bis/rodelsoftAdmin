@@ -2,6 +2,7 @@
 import os
 import time
 import jwt
+import bcrypt
 from datetime import datetime, timedelta
 from fastapi import FastAPI, Depends, HTTPException, Header, Response, Request
 from fastapi.responses import RedirectResponse
@@ -11,7 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 from db import Base, engine, get_db
 
-SECRET_KEY = os.getenv("SECRET_KEY", "miclave_secreta")
+SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "120"))
 
@@ -61,6 +62,21 @@ def has_permission(db: Session, username: str, app_id: int, client_id: int) -> b
     }).fetchone()
     return row is not None
 
+def has_active_membership(db: Session, username: str, client_id: int) -> bool:
+    q = text("""
+        SELECT 1
+        FROM user_client_memberships ucm
+        JOIN users u ON u.id = ucm.user_id
+        WHERE u.username = :username
+          AND ucm.client_id = :client_id
+          AND ucm.status = 'active'
+        LIMIT 1
+    """)
+    row = db.execute(q, {
+        "username": username,
+        "client_id": client_id
+    }).fetchone()
+    return row is not None
 
 def has_active_subscription(db: Session, client_id: int, app_id: int) -> bool:
     q = text("""
@@ -175,6 +191,12 @@ def root(
             "warning"
         )
 
+    if not has_active_membership(db, user, client_id):
+        return redirect_to_portal_with_message(
+            "Tu usuario no tiene membresía activa para el cliente seleccionado.",
+            "warning"
+        )
+
     if not has_permission(db, user, app_id, client_id):
         return redirect_to_portal_with_message(
             "No tienes permiso para acceder a esta aplicación con el cliente seleccionado.",
@@ -203,11 +225,54 @@ def health(db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB error: {e}")
 
+def is_bcrypt_hash(value: str | None) -> bool:
+    if not value:
+        return False
+    return value.startswith("$2a$") or value.startswith("$2b$") or value.startswith("$2y$")
+
+def verify_password_and_upgrade(db: Session, username: str, plain_password: str):
+    q = text("SELECT id, password FROM users WHERE username=:u LIMIT 1")
+    row = db.execute(q, {"u": username}).mappings().first()
+
+    if not row:
+        return None
+
+    user_id = row["id"]
+    stored_password = row["password"] or ""
+
+    # Caso 1: password ya hasheado (bcrypt)
+    if is_bcrypt_hash(stored_password):
+        try:
+            if bcrypt.checkpw(plain_password.encode("utf-8"), stored_password.encode("utf-8")):
+                return user_id
+            return None
+        except Exception:
+            return None
+
+    # Caso 2: legado en texto plano
+    if stored_password == plain_password:
+        # Upgrade automático a bcrypt
+        new_hash = bcrypt.hashpw(
+            plain_password.encode("utf-8"),
+            bcrypt.gensalt()
+        ).decode("utf-8")
+
+        db.execute(
+            text("UPDATE users SET password=:p WHERE id=:id"),
+            {"p": new_hash, "id": user_id}
+        )
+        db.commit()
+
+        print(f"[auth] Password legacy migrado a bcrypt para user_id={user_id}")
+        return user_id
+
+    return None
+
 @app.post("/login")
 def login(data: Login, response: Response, db: Session = Depends(get_db)):
-    q = text("SELECT id FROM users WHERE username=:u AND password=:p")
-    user = db.execute(q, {"u": data.username, "p": data.password}).fetchone()
-    if not user:
+    user_id = verify_password_and_upgrade(db, data.username, data.password)
+
+    if not user_id:
         raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
 
     payload = {
@@ -216,8 +281,6 @@ def login(data: Login, response: Response, db: Session = Depends(get_db)):
     }
     token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
-    # COOKIE con el JWT (para que Nginx pueda leerla)
-    # HttpOnly para que JS no lo lea; SameSite=Lax para navegación básica
     response.set_cookie(
         key="jwt",
         value=token,
@@ -227,7 +290,6 @@ def login(data: Login, response: Response, db: Session = Depends(get_db)):
     )
 
     return {"status": "ok", "access_token": token, "token_type": "bearer"}
-
 
 @app.get("/permissions")
 def permissions(user: str = Depends(verify_token), db: Session = Depends(get_db)):
@@ -317,19 +379,22 @@ def my_apps(user: str = Depends(verify_token), db: Session = Depends(get_db)):
             s.end_date AS subscription_end_date,
             s.is_enabled AS subscription_enabled
         FROM permissions p
-        JOIN applications a
-          ON p.app_id = a.id
-        JOIN clients c
-          ON p.client_id = c.id
         JOIN users u
-          ON p.user_id = u.id
+        ON p.user_id = u.id
+        JOIN user_client_memberships ucm
+        ON ucm.user_id = u.id
+        AND ucm.client_id = p.client_id
+        AND ucm.status = 'active'
+        JOIN applications a
+        ON p.app_id = a.id
+        JOIN clients c
+        ON p.client_id = c.id
         LEFT JOIN client_app_subscriptions s
-          ON s.client_id = p.client_id
-         AND s.app_id = p.app_id
+        ON s.client_id = p.client_id
+        AND s.app_id = p.app_id
         WHERE u.username = :username
         ORDER BY a.name, c.name
     """)
-
     rows = db.execute(q, {"username": user}).mappings().all()
 
     grouped = {}
@@ -416,6 +481,10 @@ def entry(
 ):
     if not x_app_id or not x_client_id:
         raise HTTPException(status_code=400, detail="Faltan X-App-Id o X-Client-Id")
+
+    if not has_active_membership(db, user, x_client_id):
+        raise HTTPException(status_code=403, detail="Sin membresía activa para ese cliente")
+
     # Validar que el usuario tenga ese permiso
     if not has_permission(db, user, x_app_id, x_client_id):
         raise HTTPException(status_code=403, detail="Sin permiso para esa app/cliente")

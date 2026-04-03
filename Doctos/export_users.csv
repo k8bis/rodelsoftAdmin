@@ -1,0 +1,6 @@
+id,username,email,password,created_at
+1,admin,admin@rodelsoft.com,adminpass,"2026-03-21 20:06:09"
+2,admin-rs,admin_garage@rodelsoft.com,adminrs,"2026-03-21 20:06:09"
+3,admin-gr,admin_realstate@rodelsoft.com,admingr,"2026-03-21 20:06:09"
+4,agarcia,agarcia@arar.com,artur,"2026-03-21 20:06:09"
+5,admin-pos,admin_pos@rodelsoft.com,adminpos,"2026-03-21 20:06:09"

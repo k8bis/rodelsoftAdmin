@@ -6,7 +6,7 @@
 ALTER TABLE applications
   ADD COLUMN internal_url VARCHAR(255) NULL AFTER description,
   ADD COLUMN public_url   VARCHAR(255) NULL AFTER internal_url,
-  ADD COLUMN launch_mode  ENUM('redirect','proxy') NOT NULL DEFAULT 'redirect' AFTER entry_path;
+  ADD COLUMN launch_mode ENUM('redirect','dynamic_proxy') NOT NULL DEFAULT 'redirect' AFTER entry_path;
 
 -- 2) Migrar datos desde upstream -> internal_url
 UPDATE applications
@@ -41,3 +41,6 @@ ALTER TABLE applications
 -- upstream se conserva temporalmente por compatibilidad.
 -- Lo quitaremos después si quieres en una fase posterior.
 -- ==========================================================
+ALTER TABLE applications
+  ADD COLUMN health_path VARCHAR(120) NOT NULL DEFAULT '/health' AFTER updated_at,
+  ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1 AFTER health_path;

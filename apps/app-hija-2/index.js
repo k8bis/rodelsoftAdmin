@@ -13,11 +13,11 @@ const dbConfig = {
   host: process.env.MYSQL_HOST || "mysql",
   port: process.env.MYSQL_PORT || 3306,
   user: process.env.MYSQL_USER || "proyecto_user",
-  password: process.env.MYSQL_PASSWORD || "proyecto_pass",
+  password: process.env.MYSQL_PASSWORD,
   database: process.env.MYSQL_DATABASE || "proyecto_db",
 };
 
-const SECRET_KEY = process.env.SECRET_KEY || "miclave_secreta";
+const SECRET_KEY = process.env.SECRET_KEY ;
 const ALGORITHM = process.env.ALGORITHM || "HS256";
 
 // --- helpers ---

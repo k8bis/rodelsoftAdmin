@@ -1,4 +1,4 @@
-rodolfo@RodelSoft-lnx01:~/Rodel/rodelsoftAdmin$ tree -L 4
+rodolfo@RodelSoft-lnx01:~/Rodel/rodelsoftAdmin$ tree -L 4 -a
 .
 ├── 6c79aa722885
 ├── 822f13dc17f6
@@ -12,6 +12,7 @@ rodolfo@RodelSoft-lnx01:~/Rodel/rodelsoftAdmin$ tree -L 4
 │   ├── app-hija-2
 │   │   ├── db.js
 │   │   ├── Dockerfile
+│   │   ├── .env
 │   │   ├── index.js
 │   │   ├── node_modules
 │   │   │   ├── accepts
@@ -19,6 +20,7 @@ rodolfo@RodelSoft-lnx01:~/Rodel/rodelsoftAdmin$ tree -L 4
 │   │   │   ├── array-flatten
 │   │   │   ├── aws-ssl-profiles
 │   │   │   ├── balanced-match
+│   │   │   ├── .bin
 │   │   │   ├── binary-extensions
 │   │   │   ├── body-parser
 │   │   │   ├── brace-expansion
@@ -100,6 +102,7 @@ rodolfo@RodelSoft-lnx01:~/Rodel/rodelsoftAdmin$ tree -L 4
 │   │   │   ├── normalize-path
 │   │   │   ├── object-inspect
 │   │   │   ├── on-finished
+│   │   │   ├── .package-lock.json
 │   │   │   ├── parseurl
 │   │   │   ├── path-to-regexp
 │   │   │   ├── picomatch
@@ -138,6 +141,7 @@ rodolfo@RodelSoft-lnx01:~/Rodel/rodelsoftAdmin$ tree -L 4
 │       ├── auth.py
 │       ├── db.py
 │       ├── Dockerfile
+│       ├── .env
 │       ├── main.py
 │       ├── main.py.bak
 │       ├── permissions.py
@@ -179,14 +183,18 @@ rodolfo@RodelSoft-lnx01:~/Rodel/rodelsoftAdmin$ tree -L 4
 │   ├── arbol notes-external.txt
 │   ├── arbol rodelsoft.txt
 │   ├── hallazgos y mejoras.txt
+│   ├── .~lock.RodelSoft Platform — Arquitectura Oficial v1.docx#
 │   ├── RodelSoft Platform — Arquitectura Oficial v1.docx
 │   ├── show CREATE TABLES.txt
 │   └── show_tables_prpoyecto_db.txt
 ├── dynamic-app-router
 │   ├── db.py
 │   ├── Dockerfile
+│   ├── .env
 │   ├── main.py
 │   └── requirements.txt
+├── .env
+├── .gitignore
 ├── launch-service
 │   ├── db.py
 │   ├── Dockerfile
@@ -224,4 +232,4 @@ rodolfo@RodelSoft-lnx01:~/Rodel/rodelsoftAdmin$ tree -L 4
     ├── Diagrama sin título.drawio
     └── test_e2e.py
 
-141 directories, 83 files
+
