@@ -1,0 +1,2671 @@
+import React, { useEffect, useMemo, useState } from "react";
+import "./shared-shell.css";
+import "./App.css";
+
+export default function App() {
+  const [username, setUser] = useState("admin");
+  const [password, setPass] = useState("adminpass");
+  const [authed, setAuthed] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [initializing, setInitializing] = useState(true);
+  const [msgType, setMsgType] = useState("info"); // info, success, error, warning
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [isSystemAdmin, setIsSystemAdmin] = useState(false);
+  const [hasAdminScope, setHasAdminScope] = useState(false);
+
+  // Fuente maestra de apps + permisos desde App1
+  const [rawApps, setRawApps] = useState([]);
+
+  // selección por app -> cliente
+  const [selectedClientByApp, setSelectedClientByApp] = useState({});
+
+  // =========================
+  // FASE 6B - Admin modal state
+  // =========================
+  const [adminModalOpen, setAdminModalOpen] = useState(false);
+  const [adminTab, setAdminTab] = useState("users"); // users | subscriptions | permissions | global-users | global-applications | global-clients
+
+  const [adminClients, setAdminClients] = useState([]);
+  const [adminSelectedClientId, setAdminSelectedClientId] = useState("");
+  const [adminLoadingClients, setAdminLoadingClients] = useState(false);
+  const [adminLoadingData, setAdminLoadingData] = useState(false);
+  const [adminError, setAdminError] = useState("");
+
+  const [adminUsers, setAdminUsers] = useState([]);
+  const [adminSubscriptions, setAdminSubscriptions] = useState([]);
+  const [adminPermissions, setAdminPermissions] = useState([]);
+  const [adminGlobalUsers, setAdminGlobalUsers] = useState([]);
+  const [adminGlobalApplications, setAdminGlobalApplications] = useState([]);
+  const [adminGlobalClients, setAdminGlobalClients] = useState([]);
+  const [adminAppsCatalog, setAdminAppsCatalog] = useState([]);
+
+  const [adminCreateUserForm, setAdminCreateUserForm] = useState({
+    username: "",
+    password: "",
+    email: "",
+    is_system_admin: false,
+  });
+
+  const [adminCreateClientForm, setAdminCreateClientForm] = useState({
+    client_id: "",
+    client_name: "",
+  });
+
+  const [adminApplicationForm, setAdminApplicationForm] = useState({
+    app_id: "",
+    app_name: "",
+    slug: "",
+    launch_mode: "dynamic_proxy",
+    description: "",
+  });
+
+  const [adminSubscriptionForm, setAdminSubscriptionForm] = useState({
+    client_id: "",
+    app_id: "",
+    status: "active",
+    is_enabled: true,
+    start_date: "",
+    end_date: "",
+  });
+
+  const [adminPermissionForm, setAdminPermissionForm] = useState({
+    permission_id: "",
+    user_id: "",
+    username: "",
+    client_id: "",
+    app_id: "",
+    role: "member",
+  });
+
+  const [adminActionLoading, setAdminActionLoading] = useState(false);
+  const [adminActionMsg, setAdminActionMsg] = useState("");
+  const [adminActionMsgType, setAdminActionMsgType] = useState("info");
+  const [adminEditorOpen, setAdminEditorOpen] = useState(false);
+  const [adminEditorMode, setAdminEditorMode] = useState("create"); // create | edit
+  const [adminEditorType, setAdminEditorType] = useState(""); // global-user | global-client | subscription | permission
+
+  // FASE 5.2 - navegación centralizada del portal (sin hardcodes dispersos)
+  const LOGIN_API_URL = "/app1/login";
+  const LOGOUT_API_URL = "/app1/logout";
+  const ME_API_URL = "/app1/me";
+  const MY_APPS_API_URL = "/app1/my/apps";
+  const LAUNCH_BASE_URL = "/launch";
+
+  // FASE 6B - admin endpoints
+  const ADMIN_CLIENTS_API_URL = "/app1/internal/admin/clients";
+  const ADMIN_USERS_BY_CLIENT_API_URL = "/app1/internal/admin/users-by-client";
+  const ADMIN_SUBSCRIPTIONS_BY_CLIENT_API_URL = "/app1/internal/admin/subscriptions-by-client";
+  const ADMIN_PERMISSIONS_BY_CLIENT_API_URL = "/app1/internal/admin/permissions-by-client";
+  const ADMIN_GLOBAL_USERS_API_URL = "/app1/internal/admin/global-users";
+  const ADMIN_GLOBAL_APPLICATIONS_API_URL = "/app1/internal/admin/global-applications";
+  const ADMIN_GLOBAL_CLIENTS_API_URL = "/app1/internal/admin/global-clients";
+  const ADMIN_CREATE_USER_API_URL = "/app1/internal/admin/create-user";
+  const ADMIN_CREATE_CLIENT_API_URL = "/app1/internal/admin/create-client";
+  const ADMIN_UPSERT_SUBSCRIPTION_API_URL = "/app1/internal/admin/upsert-subscription";
+  const ADMIN_UPDATE_CLIENT_API_URL = "/app1/internal/admin/update-client";
+  const ADMIN_UPDATE_SUBSCRIPTION_API_URL = "/app1/internal/admin/update-subscription";
+  const ADMIN_UPDATE_PERMISSION_ROLE_API_URL = "/app1/internal/admin/update-permission-role";
+  const ADMIN_UPDATE_USER_API_URL = "/app1/internal/admin/update-user";
+  const ADMIN_CREATE_APPLICATION_API_URL = "/app1/internal/admin/create-application";
+  const ADMIN_UPDATE_APPLICATION_API_URL = "/app1/internal/admin/update-application";
+  const ADMIN_CREATE_PERMISSION_API_URL = "/app1/internal/admin/create-permission";
+  const APPS_CATALOG_API_URL = "/app1/apps";
+
+  // Lee mensajes enviados por launch-service (?msg=...)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const incomingMsg = params.get("msg");
+    const incomingMsgType = params.get("msg_type");
+
+    if (incomingMsg) {
+      const allowedMsgTypes = ["info", "success", "warning", "error"];
+      const safeMsgType = allowedMsgTypes.includes(incomingMsgType) ? incomingMsgType : "info";
+
+      setMsg(incomingMsg);
+      setMsgType(safeMsgType);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
+
+  // 🔥 al cargar el portal, intenta restaurar sesión desde cookie
+  useEffect(() => {
+    restoreSession();
+  }, []);
+
+  useEffect(() => {
+    const handlePageShow = () => {
+      restoreSession();
+    };
+
+    window.addEventListener("pageshow", handlePageShow);
+
+    return () => {
+      window.removeEventListener("pageshow", handlePageShow);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleClickOutside = () => {
+      setUserMenuOpen(false);
+    };
+
+    if (userMenuOpen) {
+      document.addEventListener("click", handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener("click", handleClickOutside);
+    };
+  }, [userMenuOpen]);
+
+  // Cerrar modal admin con ESC
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === "Escape" && adminEditorOpen) {
+        closeAdminEditor();
+        return;
+      }
+
+      if (e.key === "Escape" && adminModalOpen) {
+        closeAdminModal();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [adminModalOpen, adminEditorOpen]);
+
+  // Si cambia tab o cliente seleccionado dentro del modal, refresca dataset
+  useEffect(() => {
+    if (!adminModalOpen) return;
+
+    if (isGlobalAdminTab(adminTab)) {
+      fetchAdminTabData(adminTab, adminSelectedClientId);
+      return;
+    }
+
+    if (!adminSelectedClientId) return;
+
+    fetchAdminTabData(adminTab, adminSelectedClientId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adminTab, adminSelectedClientId, adminModalOpen]);
+
+  useEffect(() => {
+    if (!adminModalOpen) return;
+
+    if (!isSystemAdmin && (adminTab === "subscriptions" || isGlobalAdminTab(adminTab))) {
+      setAdminTab("users");
+    }
+  }, [adminModalOpen, isSystemAdmin, adminTab]);
+
+  const isGlobalAdminTab = (tab) =>
+    tab === "global-users" || tab === "global-applications" || tab === "global-clients";
+
+  const restoreSession = async () => {
+    setInitializing(true);
+
+    try {
+      const r = await fetch(MY_APPS_API_URL, {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      });
+
+      if (!r.ok) {
+        setAuthed(false);
+        setRawApps([]);
+        setSelectedClientByApp({});
+        setMsg("");
+        setMsgType("info");
+        setIsSystemAdmin(false);
+        setHasAdminScope(false);
+        return;
+      }
+
+      const data = await r.json();
+
+      setRawApps(Array.isArray(data) ? data : []);
+      setAuthed(true);
+
+      // Opcional: intentar obtener usuario real
+      try {
+        const me = await fetch(ME_API_URL, {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+        });
+
+        if (me.ok) {
+          const meData = await me.json();
+
+          if (meData?.user) {
+            setUser(meData.user);
+          }
+
+          setIsSystemAdmin(Boolean(meData?.is_system_admin));
+          setHasAdminScope(Boolean(meData?.has_admin_scope));
+        } else {
+          setIsSystemAdmin(false);
+          setHasAdminScope(false);
+        }
+      } catch {
+        // Si falla /app1/me, no bloqueamos la UI
+      }
+    } catch (e) {
+      console.error("Error restaurando sesión:", e);
+      setAuthed(false);
+      setRawApps([]);
+      setSelectedClientByApp({});
+      setMsg("");
+      setMsgType("info");
+      setIsSystemAdmin(false);
+      setHasAdminScope(false);
+    } finally {
+      setInitializing(false);
+    }
+  };
+
+  const login = async () => {
+    setMsg("");
+    setLoading(true);
+
+    try {
+      const r = await fetch(LOGIN_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ username, password }),
+      });
+
+      if (!r.ok) {
+        const t = await r.text();
+        setMsg(`Login falló (${r.status}): ${t}`);
+        setMsgType("error");
+        setAuthed(false);
+        return;
+      }
+
+      setMsg("Sesión iniciada ✅");
+      setMsgType("success");
+
+      // 🔥 IMPORTANTE: después del login, restaurar sesión completa
+      await restoreSession();
+    } catch (e) {
+      setMsg(`Error de red: ${String(e)}`);
+      setMsgType("error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const logout = async () => {
+    setMsg("");
+    try {
+      await fetch(LOGOUT_API_URL, {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch {}
+
+    setAuthed(false);
+    setRawApps([]);
+    setSelectedClientByApp({});
+    setMsg("");
+    setMsgType("info");
+    setUserMenuOpen(false);
+    setIsSystemAdmin(false);
+    setHasAdminScope(false);
+
+    // Limpieza admin
+    closeAdminModal(true);
+  };
+
+  const fetchMyApps = async () => {
+    setMsg("");
+
+    try {
+      const r = await fetch(MY_APPS_API_URL, {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      });
+
+      if (!r.ok) {
+        const t = await r.text();
+        setMsg(`${MY_APPS_API_URL} falló (${r.status}): ${t}`);
+        setMsgType("error");
+        setRawApps([]);
+        setAuthed(false);
+        return;
+      }
+
+      const data = await r.json();
+      setRawApps(Array.isArray(data) ? data : []);
+      setAuthed(true);
+    } catch (e) {
+      setMsg(`Error ${MY_APPS_API_URL}: ${String(e)}`);
+      setMsgType("error");
+      setRawApps([]);
+      setAuthed(false);
+    }
+  };
+
+  // Si ya hay apps, autoselecciona el primer cliente accesible por app;
+  // si no hay ninguno accesible, toma el primero.
+  useEffect(() => {
+    const next = { ...selectedClientByApp };
+
+    rawApps.forEach((app) => {
+      if (!app?.clients?.length) return;
+      if (!next[app.app_id]) {
+        const firstAccessible = app.clients.find((c) => c.is_accessible);
+        next[app.app_id] = (firstAccessible || app.clients[0]).id;
+      }
+    });
+
+    setSelectedClientByApp(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(rawApps)]);
+
+  const getSelectedClient = (app) => {
+    const selectedId = selectedClientByApp[app.app_id];
+    return app.clients?.find((c) => c.id === Number(selectedId)) || app.clients?.[0] || null;
+  };
+
+  const getClientStatusLabel = (client) => {
+    if (!client) return "";
+
+    if (client.is_expiring_soon) return "VENCE PRONTO";
+
+    switch (client.subscription_status) {
+      case "active":
+        return "ACTIVA";
+      case "trial":
+        return "TRIAL";
+      case "expired":
+        return "VENCIDA";
+      case "suspended":
+        return "SUSPENDIDA";
+      case "missing":
+        return "SIN SUSCRIPCIÓN";
+      default:
+        return (client.subscription_status || "SIN ESTADO").toUpperCase();
+    }
+  };
+
+  const getClientStatusText = (client) => {
+    if (!client) return "";
+
+    if (client.is_accessible && client.is_expiring_soon) {
+      return `⚠️ Suscripción por vencer${client.subscription_end_date ? ` (${client.subscription_end_date})` : ""}`;
+    }
+
+    if (client.is_accessible && client.subscription_status === "active") {
+      return "✅ Suscripción activa";
+    }
+
+    if (client.is_accessible && client.subscription_status === "trial") {
+      return "🟡 Cliente en trial";
+    }
+
+    if (!client.is_accessible && client.subscription_status === "expired") {
+      return `⛔ Suscripción vencida${client.subscription_end_date ? ` (${client.subscription_end_date})` : ""}`;
+    }
+
+    if (!client.is_accessible && client.subscription_status === "suspended") {
+      return "⛔ Suscripción suspendida";
+    }
+
+    if (!client.is_accessible && client.subscription_status === "missing") {
+      return "⛔ Cliente sin suscripción configurada";
+    }
+
+    return `ℹ️ Estado: ${client.subscription_status || "desconocido"}`;
+  };
+
+  const enterApp = (app) => {
+    const app_id = app.app_id;
+    const client = getSelectedClient(app);
+    const client_id = client?.id;
+
+    if (!client_id) {
+      setMsg(`Selecciona un cliente para app_id=${app_id}.`);
+      setMsgType("warning");
+      return;
+    }
+
+    if (!client.is_accessible) {
+      setMsg(`No puedes ingresar a ${app.app} con el cliente "${client.name}" porque su suscripción no está activa.`);
+      setMsgType("warning");
+      return;
+    }
+
+    // FASE 2: usar launch-service
+    window.location.href = `${LAUNCH_BASE_URL}?app_id=${app_id}&client_id=${client_id}`;
+  };
+
+  // =========================
+  // FASE 6B - Admin helpers
+  // =========================
+  const closeAdminModal = (silent = false) => {
+    setAdminModalOpen(false);
+    setAdminTab("users");
+    setAdminClients([]);
+    setAdminSelectedClientId("");
+    setAdminLoadingClients(false);
+    setAdminLoadingData(false);
+    setAdminError("");
+    setAdminUsers([]);
+    setAdminSubscriptions([]);
+    setAdminPermissions([]);
+    setAdminGlobalUsers([]);
+    setAdminGlobalApplications([]);
+    setAdminGlobalClients([]);
+    closeAdminEditor(true);
+
+    if (!silent) {
+      setUserMenuOpen(false);
+    }
+  };
+
+  const openAdminModal = async () => {
+    setUserMenuOpen(false);
+
+    if (!hasAdminScope) {
+      setMsg("No tienes permisos para acceder al módulo de administración.");
+      setMsgType("warning");
+      return;
+    }
+
+    setAdminModalOpen(true);
+    setAdminTab("users");
+    setAdminError("");
+    setAdminUsers([]);
+    setAdminSubscriptions([]);
+    setAdminPermissions([]);
+    setAdminGlobalUsers([]);
+    setAdminGlobalApplications([]);
+    setAdminGlobalClients([]);
+
+    if (isSystemAdmin) {
+      await loadAdminAppsCatalog();
+    }
+
+    await fetchAdminClients();
+  };
+
+  const fetchAdminClients = async () => {
+    setAdminLoadingClients(true);
+    setAdminError("");
+
+    try {
+      const r = await fetch(ADMIN_CLIENTS_API_URL, {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      });
+
+      if (!r.ok) {
+        const t = await r.text();
+        throw new Error(`No se pudieron cargar clientes (${r.status}): ${t}`);
+      }
+
+      const data = await r.json();
+      const safeClients = Array.isArray(data) ? data : [];
+
+      setAdminClients(safeClients);
+
+      if (safeClients.length > 0) {
+        const firstClientId = safeClients[0]?.client_id;
+        setAdminSelectedClientId(firstClientId ? String(firstClientId) : "");
+      } else {
+        setAdminSelectedClientId("");
+      }
+    } catch (e) {
+      setAdminError(String(e));
+      setAdminClients([]);
+      setAdminSelectedClientId("");
+    } finally {
+      setAdminLoadingClients(false);
+    }
+  };
+
+  const fetchAdminTabData = async (tab, clientId) => {
+    const isGlobalTab = isGlobalAdminTab(tab);
+
+    if (!isGlobalTab && !clientId) return;
+
+    setAdminLoadingData(true);
+    setAdminError("");
+
+    // limpia datasets previos visibles para evitar confusión
+    setAdminUsers([]);
+    setAdminSubscriptions([]);
+    setAdminPermissions([]);
+    setAdminGlobalUsers([]);
+    setAdminGlobalApplications([]);
+    setAdminGlobalClients([]);
+
+    let url = "";
+
+    switch (tab) {
+      case "users":
+        url = `${ADMIN_USERS_BY_CLIENT_API_URL}?client_id=${clientId}`;
+        break;
+      case "subscriptions":
+        url = `${ADMIN_SUBSCRIPTIONS_BY_CLIENT_API_URL}?client_id=${clientId}`;
+        break;
+      case "permissions":
+        url = `${ADMIN_PERMISSIONS_BY_CLIENT_API_URL}?client_id=${clientId}`;
+        break;
+      case "global-users":
+        url = ADMIN_GLOBAL_USERS_API_URL;
+        break;
+      case "global-applications":
+        url = ADMIN_GLOBAL_APPLICATIONS_API_URL;
+        break;
+      case "global-clients":
+        url = ADMIN_GLOBAL_CLIENTS_API_URL;
+        break;
+      default:
+        url = `${ADMIN_USERS_BY_CLIENT_API_URL}?client_id=${clientId}`;
+        break;
+    }
+
+    try {
+      const r = await fetch(url, {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      });
+
+      if (!r.ok) {
+        const t = await r.text();
+        throw new Error(`No se pudo cargar ${tab} (${r.status}): ${t}`);
+      }
+
+      const data = await r.json();
+      const safeData = Array.isArray(data) ? data : [];
+
+      if (tab === "users") setAdminUsers(safeData);
+      if (tab === "subscriptions") setAdminSubscriptions(safeData);
+      if (tab === "permissions") setAdminPermissions(safeData);
+      if (tab === "global-users") setAdminGlobalUsers(safeData);
+      if (tab === "global-applications") setAdminGlobalApplications(safeData);
+      if (tab === "global-clients") setAdminGlobalClients(safeData);
+    } catch (e) {
+      setAdminError(String(e));
+    } finally {
+      setAdminLoadingData(false);
+    }
+  };
+
+  const loadAdminAppsCatalog = async () => {
+    try {
+      const r = await fetch(APPS_CATALOG_API_URL, {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      });
+
+      if (!r.ok) {
+        throw new Error("No se pudo cargar el catálogo de aplicaciones.");
+      }
+
+      const data = await r.json();
+      setAdminAppsCatalog(Array.isArray(data) ? data : []);
+    } catch {
+      setAdminAppsCatalog([]);
+    }
+  };
+
+  const resetAdminActionMessages = () => {
+    setAdminActionMsg("");
+    setAdminActionMsgType("info");
+  };
+
+  const closeAdminEditor = (silent = false) => {
+    setAdminEditorOpen(false);
+    setAdminEditorMode("create");
+    setAdminEditorType("");
+    setAdminCreateUserForm({
+      username: "",
+      password: "",
+      email: "",
+      is_system_admin: false,
+    });
+    setAdminCreateClientForm({
+      client_id: "",
+      client_name: "",
+    });
+    setAdminApplicationForm({
+      app_id: "",
+      app_name: "",
+      slug: "",
+      launch_mode: "dynamic_proxy",
+      description: "",
+    });
+    setAdminSubscriptionForm({
+      client_id: adminSelectedClientId ? String(adminSelectedClientId) : "",
+      app_id: "",
+      status: "active",
+      is_enabled: true,
+      start_date: "",
+      end_date: "",
+    });
+    setAdminPermissionForm({
+      permission_id: "",
+      user_id: "",
+      username: "",
+      client_id: adminSelectedClientId ? String(adminSelectedClientId) : "",
+      app_id: "",
+      role: "member",
+    });
+
+    if (!silent) {
+      resetAdminActionMessages();
+    }
+  };
+
+const openAdminEditor = (type, mode = "create", row = null) => {
+  resetAdminActionMessages();
+  setAdminEditorType(type);
+  setAdminEditorMode(mode);
+
+  if (type === "global-user") {
+    if (mode === "edit" && row) {
+      setAdminCreateUserForm({
+        user_id: row.user_id ? String(row.user_id) : "",
+        username: row.username || "",
+        password: "",
+        email: row.email || "",
+        is_system_admin: Boolean(row.is_system_admin),
+      });
+    } else {
+      setAdminCreateUserForm({
+        user_id: "",
+        username: "",
+        password: "",
+        email: "",
+        is_system_admin: false,
+      });
+    }
+  }
+
+  if (type === "global-client") {
+    setAdminCreateClientForm({
+      client_id: mode === "edit" && row?.client_id ? String(row.client_id) : "",
+      client_name: mode === "edit" && row?.client_name ? row.client_name : "",
+    });
+  }
+
+  if (type === "global-application") {
+    setAdminApplicationForm({
+      app_id: mode === "edit" && row?.app_id ? String(row.app_id) : "",
+      app_name: mode === "edit" ? row?.app_name || "" : "",
+      slug: mode === "edit" ? row?.slug || "" : "",
+      launch_mode: mode === "edit" ? row?.launch_mode || "dynamic_proxy" : "dynamic_proxy",
+      description: mode === "edit" ? row?.description || "" : "",
+    });
+  }
+
+  if (type === "subscription") {
+    if (mode === "edit" && row) {
+      setAdminSubscriptionForm({
+        client_id: adminSelectedClientId ? String(adminSelectedClientId) : "",
+        app_id: row.app_id ? String(row.app_id) : "",
+        status: row.status || "active",
+        is_enabled: Boolean(row.is_enabled),
+        start_date: row.start_date || "",
+        end_date: row.end_date || "",
+      });
+    } else {
+      setAdminSubscriptionForm({
+        client_id: adminSelectedClientId ? String(adminSelectedClientId) : "",
+        app_id: "",
+        status: "active",
+        is_enabled: true,
+        start_date: "",
+        end_date: "",
+      });
+    }
+  }
+
+  if (type === "permission") {
+    if (mode === "edit" && row) {
+      setAdminPermissionForm({
+        permission_id: row?.permission_id ? String(row.permission_id) : "",
+        user_id: row?.user_id ? String(row.user_id) : "",
+        username: row?.username || "",
+        client_id: row?.client_id ? String(row.client_id) : (adminSelectedClientId ? String(adminSelectedClientId) : ""),
+        app_id: row?.app_id ? String(row.app_id) : "",
+        role: row?.role || "member",
+      });
+    } else {
+      setAdminPermissionForm({
+        permission_id: "",
+        user_id: "",
+        username: "",
+        client_id: adminSelectedClientId ? String(adminSelectedClientId) : "",
+        app_id: "",
+        role: "member",
+      });
+    }
+  }
+
+  setAdminEditorOpen(true);
+};
+
+  const createGlobalUser = async () => {
+    resetAdminActionMessages();
+
+    if (!adminCreateUserForm.username.trim()) {
+      setAdminActionMsg("El username es obligatorio.");
+      setAdminActionMsgType("warning");
+      return false;
+    }
+
+    if (!adminCreateUserForm.password.trim()) {
+      setAdminActionMsg("La contraseña es obligatoria.");
+      setAdminActionMsgType("warning");
+      return false;
+    }
+
+    setAdminActionLoading(true);
+
+    try {
+      const r = await fetch(ADMIN_CREATE_USER_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          username: adminCreateUserForm.username.trim(),
+          password: adminCreateUserForm.password,
+          email: adminCreateUserForm.email.trim() || null,
+          is_system_admin: Boolean(adminCreateUserForm.is_system_admin),
+        }),
+      });
+
+      const data = await r.json().catch(() => null);
+
+      if (!r.ok) {
+        throw new Error(data?.detail || `No se pudo crear usuario (${r.status})`);
+      }
+
+      setAdminActionMsg(data?.message || "Usuario creado correctamente.");
+      setAdminActionMsgType("success");
+
+      setAdminCreateUserForm({
+        username: "",
+        password: "",
+        email: "",
+        is_system_admin: false,
+      });
+
+      if (adminTab === "global-users") {
+        await fetchAdminTabData("global-users", adminSelectedClientId);
+      }
+
+      return true;
+    } catch (e) {
+      setAdminActionMsg(String(e.message || e));
+      setAdminActionMsgType("error");
+      return false;
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const createGlobalClient = async () => {
+    resetAdminActionMessages();
+
+    if (!adminCreateClientForm.client_name.trim()) {
+      setAdminActionMsg("El nombre del cliente es obligatorio.");
+      setAdminActionMsgType("warning");
+      return false;
+    }
+
+    setAdminActionLoading(true);
+
+    try {
+      const r = await fetch(ADMIN_CREATE_CLIENT_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          client_name: adminCreateClientForm.client_name.trim(),
+        }),
+      });
+
+      const data = await r.json().catch(() => null);
+
+      if (!r.ok) {
+        throw new Error(data?.detail || `No se pudo crear cliente (${r.status})`);
+      }
+
+      setAdminActionMsg(data?.message || "Cliente creado correctamente.");
+      setAdminActionMsgType("success");
+
+      setAdminCreateClientForm({ client_id: "", client_name: "" });
+
+      await fetchAdminClients();
+
+      if (adminTab === "global-clients") {
+        await fetchAdminTabData("global-clients", adminSelectedClientId);
+      }
+
+      return true;
+    } catch (e) {
+      setAdminActionMsg(String(e.message || e));
+      setAdminActionMsgType("error");
+      return false;
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const updateGlobalClient = async () => {
+    resetAdminActionMessages();
+
+    if (!adminCreateClientForm.client_id) {
+      setAdminActionMsg("No se encontró el cliente a editar.");
+      setAdminActionMsgType("error");
+      return false;
+    }
+
+    if (!adminCreateClientForm.client_name.trim()) {
+      setAdminActionMsg("El nombre del cliente es obligatorio.");
+      setAdminActionMsgType("warning");
+      return false;
+    }
+
+    setAdminActionLoading(true);
+
+    try {
+      const r = await fetch(ADMIN_UPDATE_CLIENT_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          client_id: Number(adminCreateClientForm.client_id),
+          client_name: adminCreateClientForm.client_name.trim(),
+        }),
+      });
+
+      const data = await r.json().catch(() => null);
+
+      if (!r.ok) {
+        throw new Error(data?.detail || `No se pudo actualizar cliente (${r.status})`);
+      }
+
+      setAdminActionMsg(data?.message || "Cliente actualizado correctamente.");
+      setAdminActionMsgType("success");
+
+      await fetchAdminClients();
+
+      if (adminTab === "global-clients") {
+        await fetchAdminTabData("global-clients", adminSelectedClientId);
+      }
+
+      return true;
+    } catch (e) {
+      setAdminActionMsg(String(e.message || e));
+      setAdminActionMsgType("error");
+      return false;
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const upsertSubscription = async () => {
+    resetAdminActionMessages();
+
+    if (!adminSubscriptionForm.client_id) {
+      setAdminActionMsg("Debes seleccionar un cliente.");
+      setAdminActionMsgType("warning");
+      return false;
+    }
+
+    if (!adminSubscriptionForm.app_id) {
+      setAdminActionMsg("Debes seleccionar una aplicación.");
+      setAdminActionMsgType("warning");
+      return false;
+    }
+
+    setAdminActionLoading(true);
+
+    try {
+      const targetClientId = adminSubscriptionForm.client_id;
+
+      const r = await fetch(ADMIN_UPSERT_SUBSCRIPTION_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          client_id: Number(adminSubscriptionForm.client_id),
+          app_id: Number(adminSubscriptionForm.app_id),
+          status: adminSubscriptionForm.status,
+          is_enabled: Boolean(adminSubscriptionForm.is_enabled),
+          start_date: adminSubscriptionForm.start_date || null,
+          end_date: adminSubscriptionForm.end_date || null,
+        }),
+      });
+
+      const data = await r.json().catch(() => null);
+
+      if (!r.ok) {
+        throw new Error(data?.detail || `No se pudo guardar suscripción (${r.status})`);
+      }
+
+      setAdminActionMsg(data?.message || "Suscripción guardada correctamente.");
+      setAdminActionMsgType("success");
+
+      setAdminSubscriptionForm({
+        client_id: adminSelectedClientId ? String(adminSelectedClientId) : "",
+        app_id: "",
+        status: "active",
+        is_enabled: true,
+        start_date: "",
+        end_date: "",
+      });
+
+      await fetchAdminTabData("subscriptions", targetClientId);
+
+      if (adminTab === "global-clients") {
+        await fetchAdminTabData("global-clients", adminSelectedClientId);
+      }
+
+      return true;
+    } catch (e) {
+      setAdminActionMsg(String(e.message || e));
+      setAdminActionMsgType("error");
+      return false;
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const updateSubscription = async () => {
+    resetAdminActionMessages();
+
+    if (!adminSubscriptionForm.client_id) {
+      setAdminActionMsg("Debes seleccionar un cliente.");
+      setAdminActionMsgType("warning");
+      return false;
+    }
+
+    if (!adminSubscriptionForm.app_id) {
+      setAdminActionMsg("Debes seleccionar una aplicación.");
+      setAdminActionMsgType("warning");
+      return false;
+    }
+
+    setAdminActionLoading(true);
+
+    try {
+      const targetClientId = adminSubscriptionForm.client_id;
+
+      const r = await fetch(ADMIN_UPDATE_SUBSCRIPTION_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          client_id: Number(adminSubscriptionForm.client_id),
+          app_id: Number(adminSubscriptionForm.app_id),
+          status: adminSubscriptionForm.status,
+          is_enabled: Boolean(adminSubscriptionForm.is_enabled),
+          start_date: adminSubscriptionForm.start_date || null,
+          end_date: adminSubscriptionForm.end_date || null,
+        }),
+      });
+
+      const data = await r.json().catch(() => null);
+
+      if (!r.ok) {
+        throw new Error(data?.detail || `No se pudo actualizar suscripción (${r.status})`);
+      }
+
+      setAdminActionMsg(data?.message || "Suscripción actualizada correctamente.");
+      setAdminActionMsgType("success");
+
+      await fetchAdminTabData("subscriptions", targetClientId);
+
+      if (adminTab === "global-clients") {
+        await fetchAdminTabData("global-clients", adminSelectedClientId);
+      }
+
+      return true;
+    } catch (e) {
+      setAdminActionMsg(String(e.message || e));
+      setAdminActionMsgType("error");
+      return false;
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const updatePermissionRole = async () => {
+    resetAdminActionMessages();
+
+    if (!adminPermissionForm.permission_id) {
+      setAdminActionMsg("No se encontró el permiso a editar.");
+      setAdminActionMsgType("error");
+      return false;
+    }
+
+    if (!adminPermissionForm.role.trim()) {
+      setAdminActionMsg("El rol es obligatorio.");
+      setAdminActionMsgType("warning");
+      return false;
+    }
+
+    setAdminActionLoading(true);
+
+    try {
+      const r = await fetch(ADMIN_UPDATE_PERMISSION_ROLE_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          permission_id: Number(adminPermissionForm.permission_id),
+          role: adminPermissionForm.role.trim(),
+        }),
+      });
+
+      const data = await r.json().catch(() => null);
+
+      if (!r.ok) {
+        throw new Error(data?.detail || `No se pudo actualizar el rol (${r.status})`);
+      }
+
+      setAdminActionMsg(data?.message || "Rol actualizado correctamente.");
+      setAdminActionMsgType("success");
+
+      await fetchAdminTabData("permissions", adminSelectedClientId);
+
+      return true;
+    } catch (e) {
+      setAdminActionMsg(String(e.message || e));
+      setAdminActionMsgType("error");
+      return false;
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const updateGlobalUser = async () => {
+    resetAdminActionMessages();
+
+    if (!adminCreateUserForm.user_id) {
+      setAdminActionMsg("No se encontró el usuario a editar.");
+      setAdminActionMsgType("error");
+      return false;
+    }
+
+    if (!adminCreateUserForm.username.trim()) {
+      setAdminActionMsg("El username es obligatorio.");
+      setAdminActionMsgType("warning");
+      return false;
+    }
+
+    setAdminActionLoading(true);
+
+    try {
+      const r = await fetch(ADMIN_UPDATE_USER_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          user_id: Number(adminCreateUserForm.user_id),
+          username: adminCreateUserForm.username.trim(),
+          email: adminCreateUserForm.email.trim() || null,
+          is_system_admin: Boolean(adminCreateUserForm.is_system_admin),
+        }),
+      });
+
+      const data = await r.json().catch(() => null);
+
+      if (!r.ok) {
+        throw new Error(data?.detail || `No se pudo actualizar usuario (${r.status})`);
+      }
+
+      setAdminActionMsg(data?.message || "Usuario actualizado correctamente.");
+      setAdminActionMsgType("success");
+
+      await fetchAdminTabData("global-users", adminSelectedClientId);
+      return true;
+    } catch (e) {
+      setAdminActionMsg(String(e.message || e));
+      setAdminActionMsgType("error");
+      return false;
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const createGlobalApplication = async () => {
+    resetAdminActionMessages();
+
+    if (!adminApplicationForm.app_name.trim()) {
+      setAdminActionMsg("El nombre de la aplicación es obligatorio.");
+      setAdminActionMsgType("warning");
+      return false;
+    }
+
+    setAdminActionLoading(true);
+
+    try {
+      const r = await fetch(ADMIN_CREATE_APPLICATION_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          app_name: adminApplicationForm.app_name.trim(),
+          slug: adminApplicationForm.slug.trim() || null,
+          launch_mode: adminApplicationForm.launch_mode.trim() || "dynamic_proxy",
+          description: adminApplicationForm.description.trim() || null,
+        }),
+      });
+
+      const data = await r.json().catch(() => null);
+
+      if (!r.ok) {
+        throw new Error(data?.detail || `No se pudo crear aplicación (${r.status})`);
+      }
+
+      setAdminActionMsg(data?.message || "Aplicación creada correctamente.");
+      setAdminActionMsgType("success");
+
+      setAdminApplicationForm({
+        app_id: "",
+        app_name: "",
+        slug: "",
+        launch_mode: "dynamic_proxy",
+        description: "",
+      });
+
+      await fetchAdminTabData("global-applications", adminSelectedClientId);
+      await loadAdminAppsCatalog();
+
+      return true;
+    } catch (e) {
+      setAdminActionMsg(String(e.message || e));
+      setAdminActionMsgType("error");
+      return false;
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const updateGlobalApplication = async () => {
+    resetAdminActionMessages();
+
+    if (!adminApplicationForm.app_id) {
+      setAdminActionMsg("No se encontró la aplicación a editar.");
+      setAdminActionMsgType("error");
+      return false;
+    }
+
+    if (!adminApplicationForm.app_name.trim()) {
+      setAdminActionMsg("El nombre de la aplicación es obligatorio.");
+      setAdminActionMsgType("warning");
+      return false;
+    }
+
+    setAdminActionLoading(true);
+
+    try {
+      const r = await fetch(ADMIN_UPDATE_APPLICATION_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          app_id: Number(adminApplicationForm.app_id),
+          app_name: adminApplicationForm.app_name.trim(),
+          slug: adminApplicationForm.slug.trim() || null,
+          launch_mode: adminApplicationForm.launch_mode.trim() || "dynamic_proxy",
+          description: adminApplicationForm.description.trim() || null,
+        }),
+      });
+
+      const data = await r.json().catch(() => null);
+
+      if (!r.ok) {
+        throw new Error(data?.detail || `No se pudo actualizar aplicación (${r.status})`);
+      }
+
+      setAdminActionMsg(data?.message || "Aplicación actualizada correctamente.");
+      setAdminActionMsgType("success");
+
+      await fetchAdminTabData("global-applications", adminSelectedClientId);
+      await loadAdminAppsCatalog();
+
+      return true;
+    } catch (e) {
+      setAdminActionMsg(String(e.message || e));
+      setAdminActionMsgType("error");
+      return false;
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const createPermission = async () => {
+    resetAdminActionMessages();
+
+    if (!String(adminPermissionForm.username || "").trim()) {
+      setAdminActionMsg("Debes capturar el username.");
+      setAdminActionMsgType("warning");
+      return false;
+    }
+
+    if (!adminPermissionForm.client_id) {
+      setAdminActionMsg("Debes seleccionar un cliente.");
+      setAdminActionMsgType("warning");
+      return false;
+    }
+
+    if (!adminPermissionForm.app_id) {
+      setAdminActionMsg("Debes seleccionar una aplicación.");
+      setAdminActionMsgType("warning");
+      return false;
+    }
+
+    setAdminActionLoading(true);
+
+    try {
+      const r = await fetch(ADMIN_CREATE_PERMISSION_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          username: String(adminPermissionForm.username || "").trim(),
+          client_id: Number(adminPermissionForm.client_id),
+          app_id: Number(adminPermissionForm.app_id),
+          role: adminPermissionForm.role,
+        }),
+      });
+
+      const data = await r.json().catch(() => null);
+
+      if (!r.ok) {
+        throw new Error(data?.detail || `No se pudo crear permiso (${r.status})`);
+      }
+
+      setAdminActionMsg(data?.message || "Permiso creado correctamente.");
+      setAdminActionMsgType("success");
+
+      await fetchAdminTabData("permissions", adminSelectedClientId);
+
+      setAdminPermissionForm({
+        permission_id: "",
+        user_id: "",
+        username: "",
+        client_id: adminSelectedClientId ? String(adminSelectedClientId) : "",
+        app_id: "",
+        role: "member",
+      });
+
+      return true;
+    } catch (e) {
+      setAdminActionMsg(String(e.message || e));
+      setAdminActionMsgType("error");
+      return false;
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+    
+  const adminSelectedClientName = useMemo(() => {
+    const found = adminClients.find((c) => String(c.client_id) === String(adminSelectedClientId));
+    return found?.client_name || "";
+  }, [adminClients, adminSelectedClientId]);
+
+  // 🔥 mientras valida sesión, no mostrar login prematuramente
+  if (initializing) {
+    return (
+      <div className="app-container">
+        <header className="rs-shell-header">
+          <div className="rs-shell-left">
+            <picture>
+              <source srcSet="/logos/rodelsoft-monogram-hex.svg" type="image/svg+xml" />
+              <img src="/logos/rodelsoft-monogram-hex.png" alt="RodelSoft" className="rs-shell-logo" />
+            </picture>
+            <div className="rs-shell-brand">
+              <h1 className="rs-shell-title">Portal RodelSoft</h1>
+              <p className="rs-shell-subtitle">Acceso central a tus aplicaciones</p>
+            </div>
+          </div>
+          <div className="rs-shell-right"></div>
+        </header>
+
+        <main className="main-content">
+          <div className="login-container">
+            <div className="login-card">
+              <div className="login-header">
+                <h2 className="login-title">Cargando sesión...</h2>
+                <p className="login-subtitle">Validando acceso a tus aplicaciones</p>
+              </div>
+            </div>
+          </div>
+        </main>
+
+        <footer className="app-footer">
+          <p className="app-footer-text">© 2026 RodelSoft. Todos los derechos reservados.</p>
+        </footer>
+      </div>
+    );
+  }
+
+  return (
+    <div className="app-container">
+      {/* Header */}
+      <header className="rs-shell-header">
+        <div className="rs-shell-left">
+          <picture>
+            <source srcSet="/logos/rodelsoft-monogram-hex.svg" type="image/svg+xml" />
+            <img src="/logos/rodelsoft-monogram-hex.png" alt="RodelSoft" className="rs-shell-logo" />
+          </picture>
+          <div className="rs-shell-brand">
+            <h1 className="rs-shell-title">Portal RodelSoft</h1>
+            <p className="rs-shell-subtitle">Acceso central a tus aplicaciones</p>
+          </div>
+        </div>
+
+        <div className="rs-shell-right">
+          {authed && (
+            <div className="rs-user-menu">
+              <button
+                className="rs-user-trigger"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setUserMenuOpen((prev) => !prev);
+                }}
+                type="button"
+              >
+                👤 {username}
+              </button>
+
+              {userMenuOpen && (
+                <div
+                  className="rs-user-dropdown"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    className="rs-user-dropdown-item"
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      fetchMyApps();
+                    }}
+                  >
+                    🔄 Refrescar aplicaciones
+                  </button>
+
+                  {hasAdminScope && (
+                    <button
+                      className="rs-user-dropdown-item"
+                      onClick={() => {
+                        openAdminModal();
+                      }}
+                    >
+                      🛠 Administración
+                    </button>
+                  )}
+
+                  <button
+                    className="rs-user-dropdown-item rs-user-dropdown-item-danger"
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      logout();
+                    }}
+                  >
+                    Cerrar sesión
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="main-content">
+        {msg && (
+          <div className={`alert ${msgType}`}>
+            {msg}
+          </div>
+        )}
+
+        {!authed ? (
+          /* Login Panel */
+          <div className="login-container">
+            <div className="login-card">
+              <div className="login-header">
+                <h2 className="login-title">Iniciar sesión</h2>
+                <p className="login-subtitle">Accede a tus aplicaciones</p>
+              </div>
+
+              <div className="form-group">
+                <label className="label">Usuario</label>
+                <input
+                  className="input"
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUser(e.target.value)}
+                  placeholder="Ingresa tu usuario"
+                  disabled={loading}
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="label">Contraseña</label>
+                <input
+                  className="input"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPass(e.target.value)}
+                  placeholder="Ingresa tu contraseña"
+                  disabled={loading}
+                />
+              </div>
+
+              <button
+                className={`button button-primary${loading ? " button-loading" : ""}`}
+                onClick={login}
+                disabled={loading}
+              >
+                {loading ? "Iniciando..." : "Iniciar sesión"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* Apps Panel */
+          <>
+            <section className="section">
+              <h2 className="section-title">Mis aplicaciones</h2>
+
+              {rawApps.length === 0 ? (
+                <div className="empty-state">
+                  <p className="empty-state-text">📭 No hay aplicaciones asignadas a tu usuario.</p>
+                </div>
+              ) : (
+                <div className="apps-grid">
+                  {rawApps.map((app) => (
+                    <div key={app.app_id} className="app-card">
+                      <div className="app-card-header">
+                        <h3 className="app-title">{app.app}</h3>
+                        <span className="app-badge">
+                          {app.clients?.length || 0} cliente{app.clients?.length !== 1 ? "s" : ""}
+                        </span>
+                      </div>
+
+                      {app.description && (
+                        <p className="app-description">{app.description}</p>
+                      )}
+
+                      {app.clients && app.clients.length > 0 && (() => {
+                        const selectedClient = getSelectedClient(app);
+                        const canLaunch = !!selectedClient?.is_accessible;
+
+                        return (
+                          <>
+                            <div className="form-group">
+                              <label className="label">Seleccionar cliente:</label>
+                              <select
+                                className="select"
+                                value={selectedClientByApp[app.app_id] || ""}
+                                onChange={(e) =>
+                                  setSelectedClientByApp((prev) => ({
+                                    ...prev,
+                                    [app.app_id]: Number(e.target.value),
+                                  }))
+                                }
+                              >
+                                {app.clients?.map((client) => (
+                                  <option key={client.id} value={client.id}>
+                                    {client.name} ({getClientStatusLabel(client)})
+                                  </option>
+                                ))}
+                              </select>
+
+                              {selectedClient && (
+                                <div
+                                  className={`rs-client-status rs-status-${selectedClient.subscription_status}${
+                                    selectedClient.is_expiring_soon ? " rs-status-expiring" : ""
+                                  }`}
+                                >
+                                  {getClientStatusText(selectedClient)}
+                                </div>
+                              )}
+                            </div>
+
+                            <button
+                              className={`button button-primary button-fullwidth${!canLaunch ? " rs-button-disabled" : ""}`}
+                              onClick={() => enterApp(app)}
+                              disabled={!canLaunch}
+                            >
+                              {canLaunch ? `▶ Entrar a ${app.app}` : "No disponible"}
+                            </button>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </>
+        )}
+      </main>
+
+      {/* FASE 6B - Admin Modal */}
+      {adminModalOpen && (
+        <div
+          className="rs-admin-modal-overlay"
+          onClick={() => closeAdminModal()}
+        >
+          <div
+            className="rs-admin-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="rs-admin-modal-header">
+              <div>
+                <h2 className="rs-admin-modal-title">Administración</h2>
+                <p className="rs-admin-modal-subtitle">
+                  Consulta interna de clientes, usuarios, suscripciones y permisos
+                </p>
+              </div>
+
+              <button
+                type="button"
+                className="rs-admin-close"
+                onClick={() => closeAdminModal()}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="rs-admin-toolbar">
+              {!isGlobalAdminTab(adminTab) ? (
+                <>
+                  <div className="rs-admin-field">
+                    <label className="label">Cliente</label>
+                    <select
+                      className="select"
+                      value={adminSelectedClientId}
+                      onChange={(e) => setAdminSelectedClientId(e.target.value)}
+                      disabled={adminLoadingClients || adminClients.length === 0}
+                    >
+                      {adminLoadingClients ? (
+                        <option value="">Cargando clientes...</option>
+                      ) : adminClients.length === 0 ? (
+                        <option value="">Sin clientes disponibles</option>
+                      ) : (
+                        adminClients.map((client) => (
+                          <option key={client.client_id} value={client.client_id}>
+                            {client.client_name}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="button button-secondary"
+                    onClick={() => fetchAdminClients()}
+                    disabled={adminLoadingClients}
+                  >
+                    {adminLoadingClients ? "Cargando..." : "↻ Recargar clientes"}
+                  </button>
+                </>
+              ) : (
+                <div className="rs-admin-global-hint">
+                  Vista global del sistema. Esta consulta no depende del cliente seleccionado.
+                </div>
+              )}
+            </div>
+
+            {!isGlobalAdminTab(adminTab) && adminSelectedClientName && (
+              <div className="rs-admin-selected-client">
+                Cliente actual: <strong>{adminSelectedClientName}</strong>
+              </div>
+            )}
+
+            <div className="rs-admin-tab-groups">
+              {isSystemAdmin && (
+                <div className="rs-admin-tab-group">
+                  <div className="rs-admin-tab-group-label">Catálogo global</div>
+                  <div className="rs-admin-tabs">
+                    <button
+                      type="button"
+                      className={`rs-admin-tab ${adminTab === "global-users" ? "active" : ""}`}
+                      onClick={() => setAdminTab("global-users")}
+                    >
+                      Usuarios (global)
+                    </button>
+
+                    <button
+                      type="button"
+                      className={`rs-admin-tab ${adminTab === "global-applications" ? "active" : ""}`}
+                      onClick={() => setAdminTab("global-applications")}
+                    >
+                      Aplicaciones
+                    </button>
+
+                    <button
+                      type="button"
+                      className={`rs-admin-tab ${adminTab === "global-clients" ? "active" : ""}`}
+                      onClick={() => setAdminTab("global-clients")}
+                    >
+                      Clientes
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="rs-admin-tab-group">
+                <div className="rs-admin-tab-group-label">Operación por cliente</div>
+                <div className="rs-admin-tabs">
+                  <button
+                    type="button"
+                    className={`rs-admin-tab ${adminTab === "users" ? "active" : ""}`}
+                    onClick={() => setAdminTab("users")}
+                  >
+                    Usuarios
+                  </button>
+
+                  {isSystemAdmin && (
+                    <button
+                      type="button"
+                      className={`rs-admin-tab ${adminTab === "subscriptions" ? "active" : ""}`}
+                      onClick={() => setAdminTab("subscriptions")}
+                    >
+                      Suscripciones
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    className={`rs-admin-tab ${adminTab === "permissions" ? "active" : ""}`}
+                    onClick={() => setAdminTab("permissions")}
+                  >
+                    Permisos
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {adminError && (
+              <div className="alert error rs-admin-alert">
+                {adminError}
+              </div>
+            )}
+
+            <div className="rs-admin-actions-toolbar">
+              {adminTab === "global-users" && isSystemAdmin && (
+                <button
+                  type="button"
+                  className="button button-primary"
+                  onClick={() => openAdminEditor("global-user", "create")}
+                >
+                  + Nuevo usuario global
+                </button>
+              )}
+
+              {adminTab === "global-applications" && isSystemAdmin && (
+                <button
+                  type="button"
+                  className="button button-primary"
+                  onClick={() => openAdminEditor("global-application", "create")}
+                >
+                  + Nueva aplicación
+                </button>
+              )}
+
+              {adminTab === "global-clients" && isSystemAdmin && (
+                <button
+                  type="button"
+                  className="button button-primary"
+                  onClick={() => openAdminEditor("global-client", "create")}
+                >
+                  + Nuevo cliente
+                </button>
+              )}
+
+              {adminTab === "subscriptions" && isSystemAdmin && (
+                <button
+                  type="button"
+                  className="button button-primary"
+                  onClick={() => openAdminEditor("subscription", "create")}
+                  disabled={!adminSelectedClientId}
+                >
+                  + Nueva suscripción
+                </button>
+              )}
+
+              {adminTab === "permissions" && (
+                <button
+                  type="button"
+                  className="button button-primary"
+                  onClick={() => openAdminEditor("permission", "create")}
+                  disabled={!adminSelectedClientId}
+                >
+                  + Nuevo permiso
+                </button>
+              )}
+            </div>
+
+            <div className="rs-admin-content">
+              {adminLoadingData ? (
+                <div className="rs-admin-loading">
+                  Cargando datos administrativos...
+                </div>
+              ) : (
+                <>
+                  {adminTab === "global-users" && (
+                    <div className="rs-admin-table-wrap">
+                      {adminGlobalUsers.length === 0 ? (
+                        <div className="empty-state rs-admin-empty">
+                          <p className="empty-state-text">No hay usuarios en el catálogo global.</p>
+                        </div>
+                      ) : (
+                        <table className="rs-admin-table">
+                          <thead>
+                            <tr>
+                              <th>ID</th>
+                              <th>Usuario</th>
+                              <th>Email</th>
+                              <th>System Admin</th>
+                              <th>Clientes</th>
+                              <th>Permisos</th>
+                              <th>Acciones</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {adminGlobalUsers.map((row) => (
+                              <tr key={`global-user-${row.user_id}`}>
+                                <td>{row.user_id}</td>
+                                <td>{row.username}</td>
+                                <td>{row.email || "—"}</td>
+                                <td>{row.is_system_admin ? "Sí" : "No"}</td>
+                                <td>{row.clients_count ?? 0}</td>
+                                <td>{row.permissions_count ?? 0}</td>
+                                <td>
+                                  {isSystemAdmin ? (
+                                    <button
+                                      type="button"
+                                      className="rs-admin-row-action"
+                                      onClick={() => openAdminEditor("global-user", "edit", row)}
+                                    >
+                                      Modificar
+                                    </button>
+                                  ) : (
+                                    "—"
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  )}
+
+                  {adminTab === "global-applications" && (
+                    <div className="rs-admin-table-wrap">
+                      {adminGlobalApplications.length === 0 ? (
+                        <div className="empty-state rs-admin-empty">
+                          <p className="empty-state-text">No hay aplicaciones en el catálogo global.</p>
+                        </div>
+                      ) : (
+                        <table className="rs-admin-table">
+                          <thead>
+                            <tr>
+                              <th>ID</th>
+                              <th>Aplicación</th>
+                              <th>Slug</th>
+                              <th>Launch mode</th>
+                              <th>Descripción</th>
+                              <th>Acciones</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {adminGlobalApplications.map((row) => (
+                              <tr key={`global-app-${row.app_id || row.id}`}>
+                                <td>{row.app_id || row.id}</td>
+                                <td>{row.app_name || row.name}</td>
+                                <td>{row.slug || "—"}</td>
+                                <td>{row.launch_mode || "—"}</td>
+                                <td>{row.description || "—"}</td>
+                                <td>
+                                  {isSystemAdmin ? (
+                                    <button
+                                      type="button"
+                                      className="rs-admin-row-action"
+                                      onClick={() =>
+                                        openAdminEditor("global-application", "edit", {
+                                          app_id: row.app_id || row.id,
+                                          app_name: row.app_name || row.name,
+                                          slug: row.slug,
+                                          launch_mode: row.launch_mode,
+                                          description: row.description,
+                                        })
+                                      }
+                                    >
+                                      Modificar
+                                    </button>
+                                  ) : (
+                                    "—"
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  )}
+
+                  {adminTab === "global-clients" && (
+                    <div className="rs-admin-table-wrap">
+                      {adminGlobalClients.length === 0 ? (
+                        <div className="empty-state rs-admin-empty">
+                          <p className="empty-state-text">No hay clientes en el catálogo global.</p>
+                        </div>
+                      ) : (
+                        <table className="rs-admin-table">
+                          <thead>
+                            <tr>
+                              <th>ID</th>
+                              <th>Cliente</th>
+                              <th>Membresías activas</th>
+                              <th>Suscripciones</th>
+                              <th>Suscripciones activas</th>
+                              <th>Acciones</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {adminGlobalClients.map((row) => (
+                              <tr key={`global-client-${row.client_id}`}>
+                                <td>{row.client_id}</td>
+                                <td>{row.client_name}</td>
+                                <td>{row.active_memberships ?? 0}</td>
+                                <td>{row.subscriptions_count ?? 0}</td>
+                                <td>{row.active_subscriptions_count ?? 0}</td>
+                                <td>
+                                  {isSystemAdmin ? (
+                                    <button
+                                      type="button"
+                                      className="rs-admin-row-action"
+                                      onClick={() => openAdminEditor("global-client", "edit", row)}
+                                    >
+                                      Modificar
+                                    </button>
+                                  ) : (
+                                    "—"
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  )}
+
+                  {adminTab === "users" && (
+                    <div className="rs-admin-table-wrap">
+                      {adminUsers.length === 0 ? (
+                        <div className="empty-state rs-admin-empty">
+                          <p className="empty-state-text">No hay usuarios para este cliente.</p>
+                        </div>
+                      ) : (
+                        <table className="rs-admin-table">
+                          <thead>
+                            <tr>
+                              <th>ID</th>
+                              <th>Usuario</th>
+                              <th>Email</th>
+                              <th>Membresía</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {adminUsers.map((row) => (
+                              <tr key={`${row.user_id}-${row.username}`}>
+                                <td>{row.user_id}</td>
+                                <td>{row.username}</td>
+                                <td>{row.email || "—"}</td>
+                                <td>{row.membership_status || "—"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  )}
+
+                  {adminTab === "subscriptions" && (
+                    <div className="rs-admin-table-wrap">
+                      {adminSubscriptions.length === 0 ? (
+                        <div className="empty-state rs-admin-empty">
+                          <p className="empty-state-text">No hay suscripciones para este cliente.</p>
+                        </div>
+                      ) : (
+                        <table className="rs-admin-table">
+                          <thead>
+                            <tr>
+                              <th>ID</th>
+                              <th>App ID</th>
+                              <th>Aplicación</th>
+                              <th>Status</th>
+                              <th>Habilitada</th>
+                              <th>Inicio</th>
+                              <th>Fin</th>
+                              <th>Acciones</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {adminSubscriptions.map((row) => (
+                              <tr key={`${row.subscription_id}-${row.app_id}`}>
+                                <td>{row.subscription_id}</td>
+                                <td>{row.app_id}</td>
+                                <td>{row.app_name}</td>
+                                <td>{row.status || "—"}</td>
+                                <td>{row.is_enabled ? "Sí" : "No"}</td>
+                                <td>{row.start_date || "—"}</td>
+                                <td>{row.end_date || "—"}</td>
+                                <td>
+                                  {isSystemAdmin ? (
+                                    <button
+                                      type="button"
+                                      className="rs-admin-row-action"
+                                      onClick={() => openAdminEditor("subscription", "edit", row)}
+                                    >
+                                      Modificar
+                                    </button>
+                                  ) : (
+                                    "—"
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  )}
+
+                  {adminTab === "permissions" && (
+                    <div className="rs-admin-table-wrap">
+                      {adminPermissions.length === 0 ? (
+                        <div className="empty-state rs-admin-empty">
+                          <p className="empty-state-text">No hay permisos para este cliente.</p>
+                        </div>
+                      ) : (
+                        <table className="rs-admin-table">
+                          <thead>
+                            <tr>
+                              <th>ID</th>
+                              <th>User ID</th>
+                              <th>Usuario</th>
+                              <th>App ID</th>
+                              <th>Aplicación</th>
+                              <th>Rol</th>
+                              <th>Cliente</th>
+                              <th>Acciones</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {adminPermissions.map((row) => (
+                              <tr key={`permission-${row.permission_id || row.id}`}>
+                                <td>{row.permission_id || row.id}</td>
+                                <td>{row.username || "—"}</td>
+                                <td>{row.client_name || "—"}</td>
+                                <td>{row.app_name || "—"}</td>
+                                <td>{row.role || "—"}</td>
+                                <td>
+                                  <button
+                                    type="button"
+                                    className="rs-admin-row-action"
+                                    onClick={() =>
+                                      openAdminEditor("permission", "edit", {
+                                        permission_id: row.permission_id || row.id,
+                                        user_id: row.user_id || "",
+                                        username: row.username || "",
+                                        client_id: row.client_id || "",
+                                        app_id: row.app_id || "",
+                                        role: row.role || "member",
+                                      })
+                                    }
+                                  >
+                                    Modificar
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {adminEditorOpen && (
+              <div
+                className="rs-admin-editor-overlay"
+                onClick={closeAdminEditor}
+              >
+                <div
+                  className="rs-admin-editor-modal"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="rs-admin-editor-header">
+                    <div>
+                      <h3 className="rs-admin-editor-title">
+                        {adminEditorType === "global-user" &&
+                          (adminEditorMode === "edit" ? "Modificar usuario global" : "Nuevo usuario global")}
+                        {adminEditorType === "global-client" &&
+                          (adminEditorMode === "edit" ? "Modificar cliente" : "Nuevo cliente")}
+                        {adminEditorType === "global-application" &&
+                          (adminEditorMode === "edit" ? "Modificar aplicación" : "Nueva aplicación")}
+                        {adminEditorType === "subscription" &&
+                          (adminEditorMode === "edit" ? "Modificar suscripción" : "Nueva suscripción")}
+                        {adminEditorType === "permission" &&
+                          (adminEditorMode === "edit" ? "Modificar permiso" : "Nuevo permiso")}
+                      </h3>
+                      <p className="rs-admin-editor-subtitle">
+                        {adminEditorType === "global-user" &&
+                          (adminEditorMode === "edit"
+                            ? "Actualizar datos del usuario global"
+                            : "Registrar usuario del catálogo global")}
+                        {adminEditorType === "global-client" &&
+                          (adminEditorMode === "edit"
+                            ? "Actualizar nombre del cliente global"
+                            : "Registrar nuevo cliente en el sistema")}
+                        {adminEditorType === "global-application" &&
+                          (adminEditorMode === "edit"
+                            ? "Actualizar datos de la aplicación global"
+                            : "Registrar nueva aplicación en el sistema")}
+                        {adminEditorType === "subscription" &&
+                          (adminEditorMode === "edit"
+                            ? "Actualizar suscripción del cliente seleccionado"
+                            : "Crear o actualizar suscripción para el cliente seleccionado")}
+                        {adminEditorType === "permission" &&
+                          (adminEditorMode === "edit"
+                            ? "Actualizar el rol del permiso seleccionado"
+                            : "Crear un nuevo permiso para el cliente seleccionado")}
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="rs-admin-close"
+                      onClick={closeAdminEditor}
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <div className="rs-admin-editor-body">
+                    {adminEditorType === "global-user" && (
+                      <div className="rs-admin-editor-form">
+                        <div className="form-group">
+                          <label className="label">Username</label>
+                          <input
+                            className="input"
+                            type="text"
+                            value={adminCreateUserForm.username}
+                            onChange={(e) =>
+                              setAdminCreateUserForm((prev) => ({
+                                ...prev,
+                                username: e.target.value,
+                              }))
+                            }
+                            placeholder="usuario_nuevo"
+                            disabled={adminActionLoading}
+                          />
+                        </div>
+
+                        {adminEditorMode === "create" && (
+                          <div className="form-group">
+                            <label className="label">Password</label>
+                            <input
+                              className="input"
+                              type="password"
+                              value={adminCreateUserForm.password}
+                              onChange={(e) =>
+                                setAdminCreateUserForm((prev) => ({
+                                  ...prev,
+                                  password: e.target.value,
+                                }))
+                              }
+                              placeholder="Contraseña inicial"
+                              disabled={adminActionLoading}
+                            />
+                          </div>
+                        )}
+
+                        <div className="form-group">
+                          <label className="label">Email (opcional)</label>
+                          <input
+                            className="input"
+                            type="email"
+                            value={adminCreateUserForm.email}
+                            onChange={(e) =>
+                              setAdminCreateUserForm((prev) => ({
+                                ...prev,
+                                email: e.target.value,
+                              }))
+                            }
+                            placeholder="correo@empresa.com"
+                            disabled={adminActionLoading}
+                          />
+                        </div>
+
+                        <label className="rs-admin-checkbox">
+                          <input
+                            type="checkbox"
+                            checked={adminCreateUserForm.is_system_admin}
+                            onChange={(e) =>
+                              setAdminCreateUserForm((prev) => ({
+                                ...prev,
+                                is_system_admin: e.target.checked,
+                              }))
+                            }
+                            disabled={adminActionLoading}
+                          />
+                          <span>Registrar también como system_admin</span>
+                        </label>
+                      </div>
+                    )}
+
+                    {adminEditorType === "global-client" && (
+                      <div className="rs-admin-editor-form">
+                        <div className="form-group">
+                          <label className="label">Nombre del cliente</label>
+                          <input
+                            className="input"
+                            type="text"
+                            value={adminCreateClientForm.client_name}
+                            onChange={(e) =>
+                              setAdminCreateClientForm((prev) => ({
+                                ...prev,
+                                client_name: e.target.value,
+                              }))
+                            }
+                            placeholder="Nombre comercial del cliente"
+                            disabled={adminActionLoading}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {adminEditorType === "global-application" && (
+                      <div className="rs-admin-editor-form">
+                        <div className="form-group">
+                          <label className="label">Nombre de la aplicación</label>
+                          <input
+                            className="input"
+                            type="text"
+                            value={adminApplicationForm.app_name}
+                            onChange={(e) =>
+                              setAdminApplicationForm((prev) => ({
+                                ...prev,
+                                app_name: e.target.value,
+                              }))
+                            }
+                            placeholder="Nombre de la aplicación"
+                            disabled={adminActionLoading}
+                          />
+                        </div>
+
+                        <div className="form-group">
+                          <label className="label">Slug (opcional)</label>
+                          <input
+                            className="input"
+                            type="text"
+                            value={adminApplicationForm.slug}
+                            onChange={(e) =>
+                              setAdminApplicationForm((prev) => ({
+                                ...prev,
+                                slug: e.target.value,
+                              }))
+                            }
+                            placeholder="mi-app"
+                            disabled={adminActionLoading}
+                          />
+                        </div>
+
+                        <div className="form-group">
+                          <label className="label">Launch mode</label>
+                          <select
+                            value={adminApplicationForm.launch_mode}
+                            onChange={(e) =>
+                              setAdminApplicationForm((prev) => ({
+                                ...prev,
+                                launch_mode: e.target.value,
+                              }))
+                            }
+                          >
+                            <option value="dynamic_proxy">dynamic_proxy</option>
+                            <option value="redirect">redirect</option>
+                          </select>
+                        </div>
+
+                        <div className="form-group">
+                          <label className="label">Descripción (opcional)</label>
+                          <input
+                            className="input"
+                            type="text"
+                            value={adminApplicationForm.description}
+                            onChange={(e) =>
+                              setAdminApplicationForm((prev) => ({
+                                ...prev,
+                                description: e.target.value,
+                              }))
+                            }
+                            placeholder="Descripción corta"
+                            disabled={adminActionLoading}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {adminEditorType === "subscription" && (
+                      <div className="rs-admin-editor-form">
+                        <div className="form-group">
+                          <label className="label">Cliente</label>
+                          <select
+                            className="select"
+                            value={adminSubscriptionForm.client_id}
+                            onChange={(e) =>
+                              setAdminSubscriptionForm((prev) => ({
+                                ...prev,
+                                client_id: e.target.value,
+                              }))
+                            }
+                            disabled={adminActionLoading || adminEditorMode === "edit"}
+                          >
+                            <option value="">Selecciona un cliente</option>
+                            {adminClients.map((client) => (
+                              <option key={`editor-sub-client-${client.client_id}`} value={client.client_id}>
+                                {client.client_name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="form-group">
+                          <label className="label">Aplicación</label>
+                          <select
+                            className="select"
+                            value={adminSubscriptionForm.app_id}
+                            onChange={(e) =>
+                              setAdminSubscriptionForm((prev) => ({
+                                ...prev,
+                                app_id: e.target.value,
+                              }))
+                            }
+                            disabled={adminActionLoading || adminEditorMode === "edit"}
+                          >
+                            <option value="">Selecciona una aplicación</option>
+                            {adminAppsCatalog.map((app) => (
+                              <option key={`editor-sub-app-${app.id}`} value={app.id}>
+                                {app.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="rs-admin-inline-grid">
+                          <div className="form-group">
+                            <label className="label">Status</label>
+                            <select
+                              className="select"
+                              value={adminSubscriptionForm.status}
+                              onChange={(e) =>
+                                setAdminSubscriptionForm((prev) => ({
+                                  ...prev,
+                                  status: e.target.value,
+                                }))
+                              }
+                              disabled={adminActionLoading}
+                            >
+                              <option value="trial">trial</option>
+                              <option value="active">active</option>
+                              <option value="suspended">suspended</option>
+                              <option value="expired">expired</option>
+                            </select>
+                          </div>
+
+                          <div className="form-group">
+                            <label className="label">Habilitada</label>
+                            <select
+                              className="select"
+                              value={adminSubscriptionForm.is_enabled ? "1" : "0"}
+                              onChange={(e) =>
+                                setAdminSubscriptionForm((prev) => ({
+                                  ...prev,
+                                  is_enabled: e.target.value === "1",
+                                }))
+                              }
+                              disabled={adminActionLoading}
+                            >
+                              <option value="1">Sí</option>
+                              <option value="0">No</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="rs-admin-inline-grid">
+                          <div className="form-group">
+                            <label className="label">Inicio (YYYY-MM-DD)</label>
+                            <input
+                              className="input"
+                              type="date"
+                              value={adminSubscriptionForm.start_date}
+                              onChange={(e) =>
+                                setAdminSubscriptionForm((prev) => ({
+                                  ...prev,
+                                  start_date: e.target.value,
+                                }))
+                              }
+                              disabled={adminActionLoading}
+                            />
+                          </div>
+
+                          <div className="form-group">
+                            <label className="label">Fin (YYYY-MM-DD)</label>
+                            <input
+                              className="input"
+                              type="date"
+                              value={adminSubscriptionForm.end_date}
+                              onChange={(e) =>
+                                setAdminSubscriptionForm((prev) => ({
+                                  ...prev,
+                                  end_date: e.target.value,
+                                }))
+                              }
+                              disabled={adminActionLoading}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {adminEditorType === "permission" && (
+                      <>
+                        {adminEditorMode === "create" ? (
+                          <label className="rs-admin-form-field">
+                            <span>Username</span>
+                            <input
+                              type="text"
+                              value={adminPermissionForm.username}
+                              onChange={(e) =>
+                                setAdminPermissionForm((prev) => ({
+                                  ...prev,
+                                  username: e.target.value,
+                                }))
+                              }
+                              placeholder="username"
+                            />
+                          </label>
+                        ) : (
+                          <label className="rs-admin-form-field">
+                            <span>Usuario</span>
+                            <input
+                              type="text"
+                              value={adminPermissionForm.username || ""}
+                              readOnly
+                            />
+                          </label>
+                        )}
+
+                        <label className="rs-admin-form-field">
+                          <span>Cliente</span>
+                          <select
+                            value={adminPermissionForm.client_id}
+                            onChange={(e) =>
+                              setAdminPermissionForm((prev) => ({
+                                ...prev,
+                                client_id: e.target.value,
+                              }))
+                            }
+                            disabled={adminEditorMode === "edit"}
+                          >
+                            <option value="">Selecciona un cliente</option>
+                            {adminClients.map((row) => (
+                              <option key={`perm-client-${row.client_id}`} value={row.client_id}>
+                                {row.client_name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <label className="rs-admin-form-field">
+                          <span>Aplicación</span>
+                          <select
+                            value={adminPermissionForm.app_id}
+                            onChange={(e) =>
+                              setAdminPermissionForm((prev) => ({
+                                ...prev,
+                                app_id: e.target.value,
+                              }))
+                            }
+                            disabled={adminEditorMode === "edit"}
+                          >
+                            <option value="">Selecciona una aplicación</option>
+                            {adminAppsCatalog.map((row) => (
+                              <option key={`perm-app-${row.app_id || row.id}`} value={row.app_id || row.id}>
+                                {row.app_name || row.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <label className="rs-admin-form-field">
+                          <span>Rol</span>
+                          <select
+                            value={adminPermissionForm.role}
+                            onChange={(e) =>
+                              setAdminPermissionForm((prev) => ({
+                                ...prev,
+                                role: e.target.value,
+                              }))
+                            }
+                          >
+                            <option value="member">member</option>
+                            <option value="app_client_admin">app_client_admin</option>
+                          </select>
+                        </label>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="rs-admin-editor-footer">
+                    <button
+                      type="button"
+                      className="button button-secondary"
+                      onClick={closeAdminEditor}
+                      disabled={adminActionLoading}
+                    >
+                      Cancelar
+                    </button>
+
+                    {adminEditorType === "global-user" && adminEditorMode === "create" && (
+                      <button
+                        type="button"
+                        className="button button-primary"
+                        onClick={async () => {
+                          const ok = await createGlobalUser();
+                          if (ok) closeAdminEditor();
+                        }}
+                        disabled={adminActionLoading}
+                      >
+                        {adminActionLoading ? "Guardando..." : "Guardar"}
+                      </button>
+                    )}
+
+                    {adminEditorType === "global-user" && adminEditorMode === "edit" && (
+                      <button
+                        type="button"
+                        className="button button-primary"
+                        onClick={async () => {
+                          const ok = await updateGlobalUser();
+                          if (ok) closeAdminEditor();
+                        }}
+                        disabled={adminActionLoading}
+                      >
+                        {adminActionLoading ? "Guardando..." : "Guardar cambios"}
+                      </button>
+                    )}
+
+                    {adminEditorType === "global-client" && adminEditorMode === "create" && (
+                      <button
+                        type="button"
+                        className="button button-primary"
+                        onClick={async () => {
+                          const ok = await createGlobalClient();
+                          if (ok) closeAdminEditor();
+                        }}
+                        disabled={adminActionLoading}
+                      >
+                        {adminActionLoading ? "Guardando..." : "Guardar"}
+                      </button>
+                    )}
+
+                    {adminEditorType === "global-client" && adminEditorMode === "edit" && (
+                      <button
+                        type="button"
+                        className="button button-primary"
+                        onClick={async () => {
+                          const ok = await updateGlobalClient();
+                          if (ok) closeAdminEditor();
+                        }}
+                        disabled={adminActionLoading}
+                      >
+                        {adminActionLoading ? "Guardando..." : "Guardar cambios"}
+                      </button>
+                    )}
+
+                    {adminEditorType === "global-application" && adminEditorMode === "create" && (
+                      <button
+                        type="button"
+                        className="button button-primary"
+                        onClick={async () => {
+                          const ok = await createGlobalApplication();
+                          if (ok) closeAdminEditor();
+                        }}
+                        disabled={adminActionLoading}
+                      >
+                        {adminActionLoading ? "Guardando..." : "Guardar"}
+                      </button>
+                    )}
+
+                    {adminEditorType === "global-application" && adminEditorMode === "edit" && (
+                      <button
+                        type="button"
+                        className="button button-primary"
+                        onClick={async () => {
+                          const ok = await updateGlobalApplication();
+                          if (ok) closeAdminEditor();
+                        }}
+                        disabled={adminActionLoading}
+                      >
+                        {adminActionLoading ? "Guardando..." : "Guardar cambios"}
+                      </button>
+                    )}
+
+                    {adminEditorType === "subscription" && adminEditorMode === "create" && (
+                      <button
+                        type="button"
+                        className="button button-primary"
+                        onClick={async () => {
+                          const ok = await upsertSubscription();
+                          if (ok) closeAdminEditor();
+                        }}
+                        disabled={adminActionLoading}
+                      >
+                        {adminActionLoading ? "Guardando..." : "Guardar"}
+                      </button>
+                    )}
+
+                    {adminEditorType === "subscription" && adminEditorMode === "edit" && (
+                      <button
+                        type="button"
+                        className="button button-primary"
+                        onClick={async () => {
+                          const ok = await updateSubscription();
+                          if (ok) closeAdminEditor();
+                        }}
+                        disabled={adminActionLoading}
+                      >
+                        {adminActionLoading ? "Guardando..." : "Guardar cambios"}
+                      </button>
+                    )}
+
+                    {adminEditorType === "permission" && adminEditorMode === "create" && (
+                      <button
+                        type="button"
+                        className="button button-primary"
+                        onClick={async () => {
+                          const ok = await createPermission();
+                          if (ok) closeAdminEditor();
+                        }}
+                        disabled={adminActionLoading}
+                      >
+                        {adminActionLoading ? "Guardando..." : "Guardar"}
+                      </button>
+                    )}
+
+                    {adminEditorType === "permission" && adminEditorMode === "edit" && (
+                      <button
+                        type="button"
+                        className="button button-primary"
+                        onClick={async () => {
+                          const ok = await updatePermissionRole();
+                          if (ok) closeAdminEditor();
+                        }}
+                        disabled={adminActionLoading}
+                      >
+                        {adminActionLoading ? "Guardando..." : "Guardar cambios"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="rs-admin-footer">
+              <button
+                type="button"
+                className="button button-secondary"
+                onClick={() => fetchAdminTabData(adminTab, adminSelectedClientId)}
+                disabled={(!isGlobalAdminTab(adminTab) && !adminSelectedClientId) || adminLoadingData}
+              >
+                {adminLoadingData ? "Cargando..." : "↻ Recargar pestaña"}
+              </button>
+
+              <button
+                type="button"
+                className="button button-primary"
+                onClick={() => closeAdminModal()}
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Footer */}
+      <footer className="app-footer">
+        <p className="app-footer-text">© 2026 RodelSoft. Todos los derechos reservados.</p>
+      </footer>
+    </div>
+  );
+}

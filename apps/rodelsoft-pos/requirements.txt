@@ -7,3 +7,4 @@ python-dotenv
 mysql-connector-python
 cryptography
 pydantic
+requests

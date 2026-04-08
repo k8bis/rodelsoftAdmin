@@ -1,5 +1,5 @@
-rodolfo@RodelSoft-lnx01:~/Rodel/ext_apps$ tree -L 5 -a
 .
+├── arbol_ext_apps.txt
 └── rodelsoft
     └── notes-external
         ├── docker-compose.yml
@@ -14,5 +14,4 @@ rodolfo@RodelSoft-lnx01:~/Rodel/ext_apps$ tree -L 5 -a
         └── templates
             └── notes_template.html
 
-5 directories, 9 files
-
+5 directories, 10 files

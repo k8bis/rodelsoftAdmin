@@ -1,5 +1,48 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import "./shared-shell.css";
 import "./App.css";
+
+import Header from "./components/Header";
+import LoginView from "./components/LoginView";
+import AppsView from "./components/AppsView";
+import AdminModal from "./components/AdminModal";
+
+import {
+  buildDefaultSelectedClients,
+  getDefaultAdminApplicationForm,
+  getDefaultAdminCreateClientForm,
+  getDefaultAdminCreateUserForm,
+  getDefaultAdminPermissionForm,
+  getDefaultAdminSubscriptionForm,
+  getAdminSelectedClientName,
+  getSelectedClient,
+  isGlobalAdminTab,
+} from "./utils/adminHelpers";
+
+import {
+  buildLaunchUrl,
+  fetchMe,
+  fetchMyApps as fetchMyAppsRequest,
+  loginRequest,
+  logoutRequest,
+} from "./services/sessionService";
+
+import {
+  createGlobalApplication,
+  createGlobalClient,
+  createGlobalUser,
+  createPermission,
+  fetchAdminTabData as fetchAdminTabDataRequest,
+  loadAdminAppsCatalog as loadAdminAppsCatalogRequest,
+  loadAdminClients as loadAdminClientsRequest,
+  updateGlobalApplication,
+  updateGlobalClient,
+  updateGlobalUser,
+  updatePermissionRole,
+  updateSubscription,
+  upsertSubscription,
+  extractAdminErrorMessage,
+} from "./services/adminService";
 
 export default function App() {
   const [username, setUser] = useState("admin");
@@ -8,297 +51,987 @@ export default function App() {
   const [msg, setMsg] = useState("");
   const [loading, setLoading] = useState(false);
   const [initializing, setInitializing] = useState(true);
-  const [msgType, setMsgType] = useState("info"); // info, success, error, warning
+  const [msgType, setMsgType] = useState("info");
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [isSystemAdmin, setIsSystemAdmin] = useState(false);
+  const [hasAdminScope, setHasAdminScope] = useState(false);
 
-  // Fuente maestra de apps + permisos desde App1
   const [rawApps, setRawApps] = useState([]);
-
-  // selección por app -> cliente
   const [selectedClientByApp, setSelectedClientByApp] = useState({});
 
-  // FASE 5.2 - navegación centralizada del portal (sin hardcodes dispersos)
-  const LOGIN_API_URL = "/app1/login";
-  const LOGOUT_API_URL = "/app1/logout";
-  const ME_API_URL = "/app1/me";
-  const MY_APPS_API_URL = "/app1/my/apps";
-  const LAUNCH_BASE_URL = "/launch";
+  const [adminModalOpen, setAdminModalOpen] = useState(false);
+  const [adminTab, setAdminTab] = useState("users");
 
-  // Lee mensajes enviados por launch-service (?msg=...)
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const incomingMsg = params.get("msg");
-    const incomingMsgType = params.get("msg_type");
+  const [adminClients, setAdminClients] = useState([]);
+  const [adminSelectedClientId, setAdminSelectedClientId] = useState("");
+  const [adminLoadingClients, setAdminLoadingClients] = useState(false);
+  const [adminLoadingData, setAdminLoadingData] = useState(false);
 
-    if (incomingMsg) {
-      const allowedMsgTypes = ["info", "success", "warning", "error"];
-      const safeMsgType = allowedMsgTypes.includes(incomingMsgType) ? incomingMsgType : "info";
+  const [adminUsers, setAdminUsers] = useState([]);
+  const [adminSubscriptions, setAdminSubscriptions] = useState([]);
+  const [adminPermissions, setAdminPermissions] = useState([]);
+  const [adminGlobalUsers, setAdminGlobalUsers] = useState([]);
+  const [adminGlobalApplications, setAdminGlobalApplications] = useState([]);
+  const [adminGlobalClients, setAdminGlobalClients] = useState([]);
+  const [adminAppsCatalog, setAdminAppsCatalog] = useState([]);
 
-      setMsg(incomingMsg);
-      setMsgType(safeMsgType);
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-  }, []);
+  // datasets específicos para "Nuevo permiso"
+  const [adminPermissionUsers, setAdminPermissionUsers] = useState([]);
+  const [adminPermissionApps, setAdminPermissionApps] = useState([]);
 
-  // 🔥 NUEVO: al cargar el portal, intenta restaurar sesión desde cookie
-  useEffect(() => {
-    restoreSession();
-  }, []);
+  const [adminCreateUserForm, setAdminCreateUserForm] = useState(
+    getDefaultAdminCreateUserForm()
+  );
+  const [adminCreateClientForm, setAdminCreateClientForm] = useState(
+    getDefaultAdminCreateClientForm()
+  );
+  const [adminApplicationForm, setAdminApplicationForm] = useState(
+    getDefaultAdminApplicationForm()
+  );
+  const [adminSubscriptionForm, setAdminSubscriptionForm] = useState(
+    getDefaultAdminSubscriptionForm()
+  );
+  const [adminPermissionForm, setAdminPermissionForm] = useState(
+    getDefaultAdminPermissionForm()
+  );
 
-  useEffect(() => {
-    const handlePageShow = () => {
-      restoreSession();
-    };
+  const [adminActionLoading, setAdminActionLoading] = useState(false);
+  const [adminActionMsg, setAdminActionMsg] = useState("");
+  const [adminActionMsgType, setAdminActionMsgType] = useState("info");
+  const [adminEditorOpen, setAdminEditorOpen] = useState(false);
+  const [adminEditorMode, setAdminEditorMode] = useState("create");
+  const [adminEditorType, setAdminEditorType] = useState("");
 
-    window.addEventListener("pageshow", handlePageShow);
-
-    return () => {
-      window.removeEventListener("pageshow", handlePageShow);
-    };
-  }, []);
-
-  useEffect(() => {
-    const handleClickOutside = () => {
-      setUserMenuOpen(false);
-    };
-
-    if (userMenuOpen) {
-      document.addEventListener("click", handleClickOutside);
-    }
-
-    return () => {
-      document.removeEventListener("click", handleClickOutside);
-    };
-  }, [userMenuOpen]);
-
-  const restoreSession = async () => {
-    setInitializing(true);
-
-    try {
-      const r = await fetch(MY_APPS_API_URL, {
-        method: "GET",
-        credentials: "include",
-        cache: "no-store",
-      });
-
-      if (!r.ok) {
-        setAuthed(false);
-        setRawApps([]);
-        setSelectedClientByApp({});
-        setMsg("");
-        setMsgType("info");
-        return;
-      }
-
-      const data = await r.json();
-
-      setRawApps(Array.isArray(data) ? data : []);
-      setAuthed(true);
-
-      // Opcional: intentar obtener usuario real
-      try {
-        const me = await fetch(ME_API_URL, {
-          method: "GET",
-          credentials: "include",
-          cache: "no-store",
-        });
-
-        if (me.ok) {
-          const meData = await me.json();
-          if (meData?.user) {
-            setUser(meData.user);
-          }
-        }
-      } catch {
-        // Si falla /app1/me, no bloqueamos la UI
-      }
-    } catch (e) {
-      console.error("Error restaurando sesión:", e);
-      setAuthed(false);
-      setRawApps([]);
-      setSelectedClientByApp({});
-      setMsg("");
-      setMsgType("info");
-    } finally {
-      setInitializing(false);
-    }
+  const resetAdminActionMessages = () => {
+    setAdminActionMsg("");
+    setAdminActionMsgType("info");
   };
 
-  const login = async () => {
-    setMsg("");
-    setLoading(true);
-
-    try {
-      const r = await fetch(LOGIN_API_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ username, password }),
-      });
-
-      if (!r.ok) {
-        const t = await r.text();
-        setMsg(`Login falló (${r.status}): ${t}`);
-        setMsgType("error");
-        setAuthed(false);
-        return;
-      }
-
-      setMsg("Sesión iniciada ✅");
-      setMsgType("success");
-
-      // 🔥 IMPORTANTE: después del login, restaurar sesión completa
-      await restoreSession();
-    } catch (e) {
-      setMsg(`Error de red: ${String(e)}`);
-      setMsgType("error");
-    } finally {
-      setLoading(false);
-    }
+  const clearAdminDatasets = () => {
+    setAdminUsers([]);
+    setAdminSubscriptions([]);
+    setAdminPermissions([]);
+    setAdminGlobalUsers([]);
+    setAdminGlobalApplications([]);
+    setAdminGlobalClients([]);
   };
 
-  const logout = async () => {
-    setMsg("");
-    try {
-      await fetch(LOGOUT_API_URL, {
-        method: "POST",
-        credentials: "include",
-      });
-    } catch {}
+  const buildPermissionUsersDataset = (users) => {
+    return Array.isArray(users) ? users : [];
+  };
 
-    setAuthed(false);
-    setRawApps([]);
-    setSelectedClientByApp({});
-    setMsg("");
-    setMsgType("info");
-    setUserMenuOpen(false);
+  const buildPermissionAppsDataset = (subscriptions) => {
+    const allowedStatuses = new Set(["active", "trial"]);
+    const rows = Array.isArray(subscriptions) ? subscriptions : [];
+
+    const apps = rows
+      .filter((row) => allowedStatuses.has(String(row.status || "").toLowerCase()))
+      .filter((row) => Boolean(row.is_enabled))
+      .map((row) => ({
+        id: row.app_id,
+        name: row.app_name,
+      }));
+
+    const seen = new Set();
+    return apps.filter((app) => {
+      const key = String(app.id);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   };
 
   const fetchMyApps = async () => {
     setMsg("");
 
     try {
-      const r = await fetch(MY_APPS_API_URL, {
-        method: "GET",
-        credentials: "include",
-        cache: "no-store",
-      });
-
-      if (!r.ok) {
-        const t = await r.text();
-        setMsg(`${MY_APPS_API_URL} falló (${r.status}): ${t}`);
-        setMsgType("error");
-        setRawApps([]);
-        setAuthed(false);
-        return;
-      }
-
-      const data = await r.json();
+      const data = await fetchMyAppsRequest();
       setRawApps(Array.isArray(data) ? data : []);
       setAuthed(true);
     } catch (e) {
-      setMsg(`Error ${MY_APPS_API_URL}: ${String(e)}`);
+      const errorMessage = extractAdminErrorMessage(e);
+      const normalized = String(errorMessage || "").toLowerCase();
+
+      const isUnauthorized =
+        normalized.includes("401") ||
+        normalized.includes("no token") ||
+        normalized.includes("unauthorized") ||
+        normalized.includes("not authenticated") ||
+        normalized.includes("no autenticado");
+
+      if (isUnauthorized) {
+        setRawApps([]);
+        setAuthed(false);
+        setMsg("");
+        setMsgType("info");
+        return;
+      }
+
+      setMsg(`Error /app1/my/apps: ${errorMessage}`);
       setMsgType("error");
       setRawApps([]);
       setAuthed(false);
     }
   };
 
-  // Si ya hay apps, autoselecciona el primer cliente accesible por app;
-  // si no hay ninguno accesible, toma el primero.
-  useEffect(() => {
-    const next = { ...selectedClientByApp };
+  const restoreSession = async () => {
+    try {
+      await fetchMyApps();
 
-    rawApps.forEach((app) => {
-      if (!app?.clients?.length) return;
-      if (!next[app.app_id]) {
-        const firstAccessible = app.clients.find((c) => c.is_accessible);
-        next[app.app_id] = (firstAccessible || app.clients[0]).id;
+      try {
+        const meData = await fetchMe();
+
+        if (meData?.user) {
+          setUser(meData.user);
+        }
+
+        setIsSystemAdmin(Boolean(meData?.is_system_admin));
+        setHasAdminScope(Boolean(meData?.has_admin_scope || meData?.is_system_admin));
+      } catch {
+        setIsSystemAdmin(false);
+        setHasAdminScope(false);
       }
-    });
+    } finally {
+      setInitializing(false);
+    }
+  };
 
-    setSelectedClientByApp(next);
+  useEffect(() => {
+    restoreSession();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(rawApps)]);
+  }, []);
 
-  const getSelectedClient = (app) => {
-    const selectedId = selectedClientByApp[app.app_id];
-    return app.clients?.find((c) => c.id === Number(selectedId)) || app.clients?.[0] || null;
-  };
+  const login = async () => {
+    setLoading(true);
+    setMsg("");
+    setMsgType("info");
 
-  const getClientStatusLabel = (client) => {
-    if (!client) return "";
-
-    if (client.is_expiring_soon) return "VENCE PRONTO";
-
-    switch (client.subscription_status) {
-      case "active":
-        return "ACTIVA";
-      case "trial":
-        return "TRIAL";
-      case "expired":
-        return "VENCIDA";
-      case "suspended":
-        return "SUSPENDIDA";
-      case "missing":
-        return "SIN SUSCRIPCIÓN";
-      default:
-        return (client.subscription_status || "SIN ESTADO").toUpperCase();
+    try {
+      await loginRequest(username, password);
+      await restoreSession();
+      setMsg("");
+    } catch (e) {
+      setMsg(extractAdminErrorMessage(e));
+      setMsgType("error");
+      setAuthed(false);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const getClientStatusText = (client) => {
-    if (!client) return "";
+  const logout = async () => {
+    try {
+      await logoutRequest();
+    } finally {
+      setAuthed(false);
+      setRawApps([]);
+      setUserMenuOpen(false);
+      setAdminModalOpen(false);
+      setHasAdminScope(false);
+      setIsSystemAdmin(false);
+    }
+  };
 
-    if (client.is_accessible && client.is_expiring_soon) {
-      return `⚠️ Suscripción por vencer${client.subscription_end_date ? ` (${client.subscription_end_date})` : ""}`;
+  useEffect(() => {
+    setSelectedClientByApp((prev) => buildDefaultSelectedClients(rawApps, prev));
+  }, [rawApps]);
+
+  useEffect(() => {
+    const handleClick = () => setUserMenuOpen(false);
+    window.addEventListener("click", handleClick);
+    return () => window.removeEventListener("click", handleClick);
+  }, []);
+
+  const fetchAdminClients = async () => {
+    setAdminLoadingClients(true);
+    resetAdminActionMessages();
+
+    try {
+      const rows = await loadAdminClientsRequest();
+      setAdminClients(rows);
+
+      if (!rows.length) {
+        setAdminSelectedClientId("");
+        clearAdminDatasets();
+        return;
+      }
+
+      const exists = rows.some(
+        (row) => String(row.client_id) === String(adminSelectedClientId)
+      );
+
+      if (!exists) {
+        setAdminSelectedClientId(String(rows[0].client_id));
+      }
+    } catch (e) {
+      setAdminActionMsg(extractAdminErrorMessage(e));
+      setAdminActionMsgType("error");
+      setAdminClients([]);
+      setAdminSelectedClientId("");
+      clearAdminDatasets();
+    } finally {
+      setAdminLoadingClients(false);
+    }
+  };
+
+  const fetchAdminTabData = async (tab, clientId) => {
+    if (!isGlobalAdminTab(tab) && !clientId) {
+      clearAdminDatasets();
+      return;
     }
 
-    if (client.is_accessible && client.subscription_status === "active") {
-      return "✅ Suscripción activa";
+    setAdminLoadingData(true);
+    resetAdminActionMessages();
+
+    try {
+      if (tab === "permissions") {
+        const [permissionsResult, usersResult, subscriptionsResult] = await Promise.all([
+          fetchAdminTabDataRequest("permissions", clientId),
+          fetchAdminTabDataRequest("users", clientId),
+          fetchAdminTabDataRequest("subscriptions", clientId),
+        ]);
+
+        if (Object.prototype.hasOwnProperty.call(permissionsResult, "adminPermissions")) {
+          setAdminPermissions(permissionsResult.adminPermissions);
+        } else {
+          setAdminPermissions([]);
+        }
+
+        if (Object.prototype.hasOwnProperty.call(usersResult, "adminUsers")) {
+          setAdminUsers(usersResult.adminUsers);
+        } else {
+          setAdminUsers([]);
+        }
+
+        if (Object.prototype.hasOwnProperty.call(subscriptionsResult, "adminSubscriptions")) {
+          setAdminSubscriptions(subscriptionsResult.adminSubscriptions);
+        } else {
+          setAdminSubscriptions([]);
+        }
+
+        return;
+      }
+
+      const result = await fetchAdminTabDataRequest(tab, clientId);
+
+      if (Object.prototype.hasOwnProperty.call(result, "adminUsers")) {
+        setAdminUsers(result.adminUsers);
+      }
+      if (Object.prototype.hasOwnProperty.call(result, "adminSubscriptions")) {
+        setAdminSubscriptions(result.adminSubscriptions);
+      }
+      if (Object.prototype.hasOwnProperty.call(result, "adminPermissions")) {
+        setAdminPermissions(result.adminPermissions);
+      }
+      if (Object.prototype.hasOwnProperty.call(result, "adminGlobalUsers")) {
+        setAdminGlobalUsers(result.adminGlobalUsers);
+      }
+      if (Object.prototype.hasOwnProperty.call(result, "adminGlobalApplications")) {
+        setAdminGlobalApplications(result.adminGlobalApplications);
+      }
+      if (Object.prototype.hasOwnProperty.call(result, "adminGlobalClients")) {
+        setAdminGlobalClients(result.adminGlobalClients);
+      }
+    } catch (e) {
+      setAdminActionMsg(extractAdminErrorMessage(e));
+      setAdminActionMsgType("error");
+
+      if (tab === "users") setAdminUsers([]);
+      if (tab === "subscriptions") setAdminSubscriptions([]);
+      if (tab === "permissions") {
+        setAdminPermissions([]);
+        setAdminUsers([]);
+        setAdminSubscriptions([]);
+      }
+      if (tab === "global-users") setAdminGlobalUsers([]);
+      if (tab === "global-applications") setAdminGlobalApplications([]);
+      if (tab === "global-clients") setAdminGlobalClients([]);
+    } finally {
+      setAdminLoadingData(false);
+    }
+  };
+
+  const loadAdminAppsCatalog = async () => {
+    try {
+      const rows = await loadAdminAppsCatalogRequest();
+      setAdminAppsCatalog(rows);
+    } catch (e) {
+      setAdminAppsCatalog([]);
+      setAdminActionMsg(extractAdminErrorMessage(e));
+      setAdminActionMsgType("error");
+    }
+  };
+
+  const ensurePermissionDatasets = async (clientId) => {
+    const safeClientId = String(clientId || adminSelectedClientId || "");
+    if (!safeClientId) {
+      setAdminPermissionUsers([]);
+      setAdminPermissionApps([]);
+      return;
     }
 
-    if (client.is_accessible && client.subscription_status === "trial") {
-      return "🟡 Cliente en trial";
+    let nextUsers = Array.isArray(adminUsers) ? adminUsers : [];
+    let nextSubscriptions = Array.isArray(adminSubscriptions) ? adminSubscriptions : [];
+
+    const needsUsers = nextUsers.length === 0;
+    const needsSubscriptions = nextSubscriptions.length === 0;
+
+    if (needsUsers || needsSubscriptions) {
+      try {
+        const requests = [];
+        if (needsUsers) requests.push(fetchAdminTabDataRequest("users", safeClientId));
+        else requests.push(Promise.resolve({ adminUsers: nextUsers }));
+
+        if (needsSubscriptions) {
+          requests.push(fetchAdminTabDataRequest("subscriptions", safeClientId));
+        } else {
+          requests.push(Promise.resolve({ adminSubscriptions: nextSubscriptions }));
+        }
+
+        const [usersResult, subscriptionsResult] = await Promise.all(requests);
+
+        nextUsers = Array.isArray(usersResult?.adminUsers) ? usersResult.adminUsers : nextUsers;
+        nextSubscriptions = Array.isArray(subscriptionsResult?.adminSubscriptions)
+          ? subscriptionsResult.adminSubscriptions
+          : nextSubscriptions;
+
+        if (needsUsers) setAdminUsers(nextUsers);
+        if (needsSubscriptions) setAdminSubscriptions(nextSubscriptions);
+      } catch (e) {
+        setAdminActionMsg(extractAdminErrorMessage(e));
+        setAdminActionMsgType("error");
+      }
     }
 
-    if (!client.is_accessible && client.subscription_status === "expired") {
-      return `⛔ Suscripción vencida${client.subscription_end_date ? ` (${client.subscription_end_date})` : ""}`;
+    setAdminPermissionUsers(buildPermissionUsersDataset(nextUsers));
+    setAdminPermissionApps(buildPermissionAppsDataset(nextSubscriptions));
+  };
+
+  const openAdminModal = async () => {
+    setUserMenuOpen(false);
+    setAdminModalOpen(true);
+    setAdminTab(isSystemAdmin ? "global-users" : "users");
+    resetAdminActionMessages();
+
+    await fetchAdminClients();
+    await loadAdminAppsCatalog();
+  };
+
+  useEffect(() => {
+    if (!adminModalOpen) return;
+    fetchAdminTabData(adminTab, adminSelectedClientId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adminModalOpen, adminTab, adminSelectedClientId]);
+
+  // recalcular datasets de "Nuevo permiso" cuando cambia cliente / datasets
+  useEffect(() => {
+    const clientId = String(adminPermissionForm.client_id || "");
+
+    if (adminEditorType !== "permission" || adminEditorMode !== "create" || !adminEditorOpen) {
+      return;
     }
 
-    if (!client.is_accessible && client.subscription_status === "suspended") {
-      return "⛔ Suscripción suspendida";
+    const users = buildPermissionUsersDataset(adminUsers);
+    setAdminPermissionUsers(users);
+
+    const uniqueApps = buildPermissionAppsDataset(adminSubscriptions);
+    setAdminPermissionApps(uniqueApps);
+
+    if (
+      adminPermissionForm.app_id &&
+      !uniqueApps.some((app) => String(app.id) === String(adminPermissionForm.app_id))
+    ) {
+      setAdminPermissionForm((prev) => ({
+        ...prev,
+        app_id: "",
+      }));
     }
 
-    if (!client.is_accessible && client.subscription_status === "missing") {
-      return "⛔ Cliente sin suscripción configurada";
+    if (
+      adminPermissionForm.user_id &&
+      !users.some((user) => String(user.user_id || user.id) === String(adminPermissionForm.user_id))
+    ) {
+      setAdminPermissionForm((prev) => ({
+        ...prev,
+        user_id: "",
+        username: "",
+      }));
+    }
+  }, [
+    adminEditorType,
+    adminEditorMode,
+    adminEditorOpen,
+    adminPermissionForm.client_id,
+    adminPermissionForm.app_id,
+    adminPermissionForm.user_id,
+    adminUsers,
+    adminSubscriptions,
+  ]);
+
+  const openAdminEditor = async (type, mode = "create", row = null) => {
+    resetAdminActionMessages();
+    setAdminEditorType(type);
+    setAdminEditorMode(mode);
+
+    if (type === "global-user") {
+      if (mode === "edit" && row) {
+        setAdminCreateUserForm({
+          user_id: row.user_id || "",
+          username: row.username || "",
+          password: "",
+          email: row.email || "",
+          is_system_admin: Boolean(row.is_system_admin),
+        });
+      } else {
+        setAdminCreateUserForm(getDefaultAdminCreateUserForm());
+      }
     }
 
-    return `ℹ️ Estado: ${client.subscription_status || "desconocido"}`;
+    if (type === "global-client") {
+      if (mode === "edit" && row) {
+        setAdminCreateClientForm({
+          client_id: row.client_id || "",
+          client_name: row.client_name || "",
+        });
+      } else {
+        setAdminCreateClientForm(getDefaultAdminCreateClientForm());
+      }
+    }
+
+    if (type === "global-application") {
+      if (mode === "edit" && row) {
+        setAdminApplicationForm({
+          app_id: row.app_id || "",
+          app_name: row.app_name || "",
+          slug: row.slug || "",
+          internal_url: row.internal_url || "",
+          public_url: row.public_url || "",
+          entry_path: row.entry_path || "/",
+          health_path: row.health_path || "/health",
+          launch_mode: row.launch_mode || "dynamic_proxy",
+          description: row.description || "",
+          is_enabled: row.is_enabled !== undefined ? Boolean(row.is_enabled) : true,
+        });
+      } else {
+        setAdminApplicationForm(getDefaultAdminApplicationForm());
+      }
+    }
+
+    if (type === "subscription") {
+      if (mode === "edit" && row) {
+        setAdminSubscriptionForm({
+          client_id: row.client_id
+            ? String(row.client_id)
+            : String(adminSelectedClientId || ""),
+          app_id: row.app_id ? String(row.app_id) : "",
+          status: row.status || "active",
+          is_enabled: Boolean(row.is_enabled),
+          start_date: row.start_date || "",
+          end_date: row.end_date || "",
+        });
+      } else {
+        setAdminSubscriptionForm(getDefaultAdminSubscriptionForm(adminSelectedClientId));
+      }
+    }
+
+    if (type === "permission") {
+      if (mode === "edit" && row) {
+        setAdminPermissionForm({
+          permission_id: row.permission_id ? String(row.permission_id) : "",
+          user_id: row.user_id ? String(row.user_id) : "",
+          username: row.username || "",
+          client_id: row.client_id
+            ? String(row.client_id)
+            : String(adminSelectedClientId || ""),
+          app_id: row.app_id ? String(row.app_id) : "",
+          role: row.role || "member",
+        });
+
+        setAdminPermissionUsers(buildPermissionUsersDataset(adminUsers));
+        setAdminPermissionApps(
+          buildPermissionAppsDataset(
+            adminSubscriptions,
+            row.client_id ? String(row.client_id) : String(adminSelectedClientId || "")
+          )
+        );
+      } else {
+        const nextClientId = String(adminSelectedClientId || "");
+
+        setAdminPermissionForm(getDefaultAdminPermissionForm(nextClientId));
+
+        // Abrir primero el editor para que el useEffect de recalculo ya entre con el estado correcto
+        setAdminEditorOpen(true);
+
+        // Forzar datasets inmediatos y recarga defensiva si aún no están disponibles
+        await ensurePermissionDatasets(nextClientId);
+        return;
+      }
+    }
+
+    setAdminEditorOpen(true);
+  };
+
+  const closeAdminModal = () => {
+    setAdminModalOpen(false);
+    setAdminEditorOpen(false);
+    setAdminEditorType("");
+    setAdminEditorMode("create");
+    resetAdminActionMessages();
+  };
+
+  const closeAdminEditor = () => {
+    setAdminEditorOpen(false);
+    setAdminEditorType("");
+    setAdminEditorMode("create");
+    setAdminPermissionUsers([]);
+    setAdminPermissionApps([]);
+    resetAdminActionMessages();
+  };
+
+  const refreshAfterMutation = async (tab) => {
+    const normalizedTab = tab === "subscription" ? "subscriptions" : tab;
+    await fetchAdminTabData(normalizedTab, adminSelectedClientId);
+
+    if (
+      normalizedTab === "global-applications" ||
+      normalizedTab === "subscriptions" ||
+      normalizedTab === "permissions"
+    ) {
+      await loadAdminAppsCatalog();
+    }
+  };
+
+  const handleCreateGlobalUser = async () => {
+    resetAdminActionMessages();
+
+    if (!String(adminCreateUserForm.username || "").trim()) {
+      setAdminActionMsg("Debes capturar el username.");
+      setAdminActionMsgType("warning");
+      return;
+    }
+
+    if (!String(adminCreateUserForm.password || "").trim()) {
+      setAdminActionMsg("Debes capturar el password inicial.");
+      setAdminActionMsgType("warning");
+      return;
+    }
+
+    setAdminActionLoading(true);
+
+    try {
+      const data = await createGlobalUser({
+        username: String(adminCreateUserForm.username || "").trim(),
+        password: String(adminCreateUserForm.password || "").trim(),
+        email: String(adminCreateUserForm.email || "").trim() || null,
+        is_system_admin: Boolean(adminCreateUserForm.is_system_admin),
+      });
+
+      setAdminActionMsg(data?.message || "Usuario global creado correctamente.");
+      setAdminActionMsgType("success");
+
+      await refreshAfterMutation("global-users");
+      closeAdminEditor();
+    } catch (e) {
+      setAdminActionMsg(extractAdminErrorMessage(e));
+      setAdminActionMsgType("error");
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const handleUpdateGlobalUser = async () => {
+    resetAdminActionMessages();
+
+    if (!adminCreateUserForm.user_id) {
+      setAdminActionMsg("No se encontró el user_id.");
+      setAdminActionMsgType("warning");
+      return;
+    }
+
+    if (!String(adminCreateUserForm.username || "").trim()) {
+      setAdminActionMsg("Debes capturar el username.");
+      setAdminActionMsgType("warning");
+      return;
+    }
+
+    setAdminActionLoading(true);
+
+    try {
+      const data = await updateGlobalUser({
+        user_id: Number(adminCreateUserForm.user_id),
+        username: String(adminCreateUserForm.username || "").trim(),
+        email: String(adminCreateUserForm.email || "").trim() || null,
+        is_system_admin: Boolean(adminCreateUserForm.is_system_admin),
+      });
+
+      setAdminActionMsg(data?.message || "Usuario global actualizado correctamente.");
+      setAdminActionMsgType("success");
+
+      await refreshAfterMutation("global-users");
+      closeAdminEditor();
+    } catch (e) {
+      setAdminActionMsg(extractAdminErrorMessage(e));
+      setAdminActionMsgType("error");
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const handleCreateGlobalClient = async () => {
+    resetAdminActionMessages();
+
+    if (!String(adminCreateClientForm.client_name || "").trim()) {
+      setAdminActionMsg("Debes capturar el nombre del cliente.");
+      setAdminActionMsgType("warning");
+      return;
+    }
+
+    setAdminActionLoading(true);
+
+    try {
+      const data = await createGlobalClient({
+        client_name: String(adminCreateClientForm.client_name || "").trim(),
+      });
+
+      setAdminActionMsg(data?.message || "Cliente creado correctamente.");
+      setAdminActionMsgType("success");
+
+      await refreshAfterMutation("global-clients");
+      closeAdminEditor();
+    } catch (e) {
+      setAdminActionMsg(extractAdminErrorMessage(e));
+      setAdminActionMsgType("error");
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const handleUpdateGlobalClient = async () => {
+    resetAdminActionMessages();
+
+    if (!adminCreateClientForm.client_id) {
+      setAdminActionMsg("No se encontró el client_id.");
+      setAdminActionMsgType("warning");
+      return;
+    }
+
+    if (!String(adminCreateClientForm.client_name || "").trim()) {
+      setAdminActionMsg("Debes capturar el nombre del cliente.");
+      setAdminActionMsgType("warning");
+      return;
+    }
+
+    setAdminActionLoading(true);
+
+    try {
+      const data = await updateGlobalClient({
+        client_id: Number(adminCreateClientForm.client_id),
+        client_name: String(adminCreateClientForm.client_name || "").trim(),
+      });
+
+      setAdminActionMsg(data?.message || "Cliente actualizado correctamente.");
+      setAdminActionMsgType("success");
+
+      await refreshAfterMutation("global-clients");
+      closeAdminEditor();
+    } catch (e) {
+      setAdminActionMsg(extractAdminErrorMessage(e));
+      setAdminActionMsgType("error");
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const handleCreateGlobalApplication = async () => {
+    resetAdminActionMessages();
+
+    if (!String(adminApplicationForm.app_name || "").trim()) {
+      setAdminActionMsg("Debes capturar el nombre de la aplicación.");
+      setAdminActionMsgType("warning");
+      return;
+    }
+
+    if (!String(adminApplicationForm.slug || "").trim()) {
+      setAdminActionMsg("Debes capturar el slug.");
+      setAdminActionMsgType("warning");
+      return;
+    }
+
+    if (!String(adminApplicationForm.internal_url || "").trim()) {
+      setAdminActionMsg("Debes capturar la Internal URL.");
+      setAdminActionMsgType("warning");
+      return;
+    }
+
+    if (!String(adminApplicationForm.public_url || "").trim()) {
+      setAdminActionMsg("Debes capturar la Public URL.");
+      setAdminActionMsgType("warning");
+      return;
+    }
+
+    setAdminActionLoading(true);
+
+    try {
+      const data = await createGlobalApplication({
+        app_name: String(adminApplicationForm.app_name || "").trim(),
+        slug: String(adminApplicationForm.slug || "").trim(),
+        internal_url: String(adminApplicationForm.internal_url || "").trim(),
+        public_url: String(adminApplicationForm.public_url || "").trim(),
+        entry_path: String(adminApplicationForm.entry_path || "").trim() || "/",
+        health_path: String(adminApplicationForm.health_path || "").trim() || "/health",
+        launch_mode: adminApplicationForm.launch_mode || "dynamic_proxy",
+        description: String(adminApplicationForm.description || "").trim() || null,
+        is_enabled: Boolean(adminApplicationForm.is_enabled),
+      });
+
+      setAdminActionMsg(data?.message || "Aplicación creada correctamente.");
+      setAdminActionMsgType("success");
+
+      await refreshAfterMutation("global-applications");
+      closeAdminEditor();
+    } catch (e) {
+      setAdminActionMsg(extractAdminErrorMessage(e));
+      setAdminActionMsgType("error");
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const handleUpdateGlobalApplication = async () => {
+    resetAdminActionMessages();
+
+    if (!adminApplicationForm.app_id) {
+      setAdminActionMsg("No se encontró el app_id.");
+      setAdminActionMsgType("warning");
+      return;
+    }
+
+    if (!String(adminApplicationForm.app_name || "").trim()) {
+      setAdminActionMsg("Debes capturar el nombre de la aplicación.");
+      setAdminActionMsgType("warning");
+      return;
+    }
+
+    if (!String(adminApplicationForm.slug || "").trim()) {
+      setAdminActionMsg("Debes capturar el slug.");
+      setAdminActionMsgType("warning");
+      return;
+    }
+
+    if (!String(adminApplicationForm.internal_url || "").trim()) {
+      setAdminActionMsg("Debes capturar la Internal URL.");
+      setAdminActionMsgType("warning");
+      return;
+    }
+
+    if (!String(adminApplicationForm.public_url || "").trim()) {
+      setAdminActionMsg("Debes capturar la Public URL.");
+      setAdminActionMsgType("warning");
+      return;
+    }
+
+    setAdminActionLoading(true);
+
+    try {
+      const data = await updateGlobalApplication({
+        app_id: Number(adminApplicationForm.app_id),
+        app_name: String(adminApplicationForm.app_name || "").trim(),
+        slug: String(adminApplicationForm.slug || "").trim(),
+        internal_url: String(adminApplicationForm.internal_url || "").trim(),
+        public_url: String(adminApplicationForm.public_url || "").trim(),
+        entry_path: String(adminApplicationForm.entry_path || "").trim() || "/",
+        health_path: String(adminApplicationForm.health_path || "").trim() || "/health",
+        launch_mode: adminApplicationForm.launch_mode || "dynamic_proxy",
+        description: String(adminApplicationForm.description || "").trim() || null,
+        is_enabled: Boolean(adminApplicationForm.is_enabled),
+      });
+
+      setAdminActionMsg(data?.message || "Aplicación actualizada correctamente.");
+      setAdminActionMsgType("success");
+
+      await refreshAfterMutation("global-applications");
+      closeAdminEditor();
+    } catch (e) {
+      setAdminActionMsg(extractAdminErrorMessage(e));
+      setAdminActionMsgType("error");
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const handleCreateSubscription = async () => {
+    resetAdminActionMessages();
+
+    if (!adminSubscriptionForm.client_id) {
+      setAdminActionMsg("Debes seleccionar un cliente.");
+      setAdminActionMsgType("warning");
+      return;
+    }
+
+    if (!adminSubscriptionForm.app_id) {
+      setAdminActionMsg("Debes seleccionar una aplicación.");
+      setAdminActionMsgType("warning");
+      return;
+    }
+
+    setAdminActionLoading(true);
+
+    try {
+      const data = await upsertSubscription({
+        client_id: Number(adminSubscriptionForm.client_id),
+        app_id: Number(adminSubscriptionForm.app_id),
+        status: adminSubscriptionForm.status,
+        is_enabled: Boolean(adminSubscriptionForm.is_enabled),
+        start_date: adminSubscriptionForm.start_date || null,
+        end_date: adminSubscriptionForm.end_date || null,
+      });
+
+      setAdminActionMsg(data?.message || "Suscripción creada correctamente.");
+      setAdminActionMsgType("success");
+
+      await refreshAfterMutation("subscriptions");
+      closeAdminEditor();
+    } catch (e) {
+      setAdminActionMsg(extractAdminErrorMessage(e));
+      setAdminActionMsgType("error");
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const handleUpdateSubscription = async () => {
+    resetAdminActionMessages();
+
+    if (!adminSubscriptionForm.client_id || !adminSubscriptionForm.app_id) {
+      setAdminActionMsg("No se encontró el contexto de la suscripción.");
+      setAdminActionMsgType("warning");
+      return;
+    }
+
+    setAdminActionLoading(true);
+
+    try {
+      const data = await updateSubscription({
+        client_id: Number(adminSubscriptionForm.client_id),
+        app_id: Number(adminSubscriptionForm.app_id),
+        status: adminSubscriptionForm.status,
+        is_enabled: Boolean(adminSubscriptionForm.is_enabled),
+        start_date: adminSubscriptionForm.start_date || null,
+        end_date: adminSubscriptionForm.end_date || null,
+      });
+
+      setAdminActionMsg(data?.message || "Suscripción actualizada correctamente.");
+      setAdminActionMsgType("success");
+
+      await refreshAfterMutation("subscriptions");
+      closeAdminEditor();
+    } catch (e) {
+      setAdminActionMsg(extractAdminErrorMessage(e));
+      setAdminActionMsgType("error");
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const handleCreatePermission = async () => {
+    resetAdminActionMessages();
+
+    if (!adminPermissionForm.user_id) {
+      setAdminActionMsg("Debes seleccionar un usuario.");
+      setAdminActionMsgType("warning");
+      return;
+    }
+
+    if (!adminPermissionForm.client_id) {
+      setAdminActionMsg("Debes seleccionar un cliente.");
+      setAdminActionMsgType("warning");
+      return;
+    }
+
+    if (!adminPermissionForm.app_id) {
+      setAdminActionMsg("Debes seleccionar una aplicación.");
+      setAdminActionMsgType("warning");
+      return;
+    }
+
+    setAdminActionLoading(true);
+
+    try {
+      const selectedUser =
+        adminPermissionUsers.find(
+          (row) => String(row.user_id || row.id) === String(adminPermissionForm.user_id)
+        ) || null;
+
+      const data = await createPermission({
+        user_id: Number(adminPermissionForm.user_id),
+        username: selectedUser?.username || String(adminPermissionForm.username || "").trim(),
+        client_id: Number(adminPermissionForm.client_id),
+        app_id: Number(adminPermissionForm.app_id),
+        role: adminPermissionForm.role,
+      });
+
+      setAdminActionMsg(data?.message || "Permiso creado correctamente.");
+      setAdminActionMsgType("success");
+
+      await refreshAfterMutation("permissions");
+      setAdminPermissionForm(getDefaultAdminPermissionForm(adminSelectedClientId));
+      closeAdminEditor();
+    } catch (e) {
+      setAdminActionMsg(extractAdminErrorMessage(e));
+      setAdminActionMsgType("error");
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const handleUpdatePermissionRole = async () => {
+    resetAdminActionMessages();
+
+    if (!adminPermissionForm.permission_id) {
+      setAdminActionMsg("No se encontró el permission_id.");
+      setAdminActionMsgType("warning");
+      return;
+    }
+
+    setAdminActionLoading(true);
+
+    try {
+      const data = await updatePermissionRole({
+        permission_id: Number(adminPermissionForm.permission_id),
+        role: adminPermissionForm.role,
+      });
+
+      setAdminActionMsg(data?.message || "Permiso actualizado correctamente.");
+      setAdminActionMsgType("success");
+
+      await refreshAfterMutation("permissions");
+      closeAdminEditor();
+    } catch (e) {
+      setAdminActionMsg(extractAdminErrorMessage(e));
+      setAdminActionMsgType("error");
+    } finally {
+      setAdminActionLoading(false);
+    }
   };
 
   const enterApp = (app) => {
-    const app_id = app.app_id;
-    const client = getSelectedClient(app);
-    const client_id = client?.id;
+    const selectedClient = getSelectedClient(app, selectedClientByApp);
 
-    if (!client_id) {
-      setMsg(`Selecciona un cliente para app_id=${app_id}.`);
+    if (!selectedClient?.is_accessible) {
+      setMsg("La app no está disponible para el cliente seleccionado.");
       setMsgType("warning");
       return;
     }
 
-    if (!client.is_accessible) {
-      setMsg(`No puedes ingresar a ${app.app} con el cliente "${client.name}" porque su suscripción no está activa.`);
-      setMsgType("warning");
-      return;
-    }
-
-    // FASE 2: usar launch-service
-    window.location.href = `${LAUNCH_BASE_URL}?app_id=${app_id}&client_id=${client_id}`;
+    const url = buildLaunchUrl(app.app_id, selectedClient.id);
+    window.location.href = url;
   };
 
-  // 🔥 NUEVO: mientras valida sesión, no mostrar login prematuramente
+  const adminSelectedClientName = useMemo(
+    () => getAdminSelectedClientName(adminClients, adminSelectedClientId),
+    [adminClients, adminSelectedClientId]
+  );
+
   if (initializing) {
     return (
       <div className="app-container">
@@ -306,7 +1039,11 @@ export default function App() {
           <div className="rs-shell-left">
             <picture>
               <source srcSet="/logos/rodelsoft-monogram-hex.svg" type="image/svg+xml" />
-              <img src="/logos/rodelsoft-monogram-hex.png" alt="RodelSoft" className="rs-shell-logo" />
+              <img
+                src="/logos/rodelsoft-monogram-hex.png"
+                alt="RodelSoft"
+                className="rs-shell-logo"
+              />
             </picture>
             <div className="rs-shell-brand">
               <h1 className="rs-shell-title">Portal RodelSoft</h1>
@@ -328,7 +1065,9 @@ export default function App() {
         </main>
 
         <footer className="app-footer">
-          <p className="app-footer-text">© 2026 RodelSoft. Todos los derechos reservados.</p>
+          <p className="app-footer-text">
+            © 2026 RodelSoft. Todos los derechos reservados.
+          </p>
         </footer>
       </div>
     );
@@ -336,196 +1075,96 @@ export default function App() {
 
   return (
     <div className="app-container">
-      {/* Header */}
-      <header className="rs-shell-header">
-        <div className="rs-shell-left">
-          <picture>
-            <source srcSet="/logos/rodelsoft-monogram-hex.svg" type="image/svg+xml" />
-            <img src="/logos/rodelsoft-monogram-hex.png" alt="RodelSoft" className="rs-shell-logo" />
-          </picture>
-          <div className="rs-shell-brand">
-            <h1 className="rs-shell-title">Portal RodelSoft</h1>
-            <p className="rs-shell-subtitle">Acceso central a tus aplicaciones</p>
-          </div>
-        </div>
+      <Header
+        authed={authed}
+        username={username}
+        userMenuOpen={userMenuOpen}
+        setUserMenuOpen={setUserMenuOpen}
+        fetchMyApps={fetchMyApps}
+        hasAdminScope={hasAdminScope}
+        openAdminModal={openAdminModal}
+        logout={logout}
+      />
 
-        <div className="rs-shell-right">
-          {authed && (
-            <div className="rs-user-menu">
-              <button
-                className="rs-user-trigger"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setUserMenuOpen((prev) => !prev);
-                }}
-                type="button"
-              >
-                👤 {username}
-              </button>
-
-              {userMenuOpen && (
-                <div
-                  className="rs-user-dropdown"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <button
-                    className="rs-user-dropdown-item"
-                    onClick={() => {
-                      setUserMenuOpen(false);
-                      fetchMyApps();
-                    }}
-                  >
-                    🔄 Refrescar aplicaciones
-                  </button>
-                  <button
-                    className="rs-user-dropdown-item rs-user-dropdown-item-danger"
-                    onClick={() => {
-                      setUserMenuOpen(false);
-                      logout();
-                    }}
-                  >
-                    Cerrar sesión
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </header>
-
-      {/* Main Content */}
       <main className="main-content">
-        {msg && (
-          <div className={`alert ${msgType}`}>
-            {msg}
-          </div>
-        )}
+        {msg && <div className={`alert ${msgType}`}>{msg}</div>}
 
         {!authed ? (
-          /* Login Panel */
-          <div className="login-container">
-            <div className="login-card">
-              <div className="login-header">
-                <h2 className="login-title">Iniciar sesión</h2>
-                <p className="login-subtitle">Accede a tus aplicaciones</p>
-              </div>
-
-              <div className="form-group">
-                <label className="label">Usuario</label>
-                <input
-                  className="input"
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUser(e.target.value)}
-                  placeholder="Ingresa tu usuario"
-                  disabled={loading}
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="label">Contraseña</label>
-                <input
-                  className="input"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPass(e.target.value)}
-                  placeholder="Ingresa tu contraseña"
-                  disabled={loading}
-                />
-              </div>
-
-              <button
-                className={`button button-primary${loading ? " button-loading" : ""}`}
-                onClick={login}
-                disabled={loading}
-              >
-                {loading ? "Iniciando..." : "Iniciar sesión"}
-              </button>
-            </div>
-          </div>
+          <LoginView
+            username={username}
+            setUser={setUser}
+            password={password}
+            setPass={setPass}
+            loading={loading}
+            login={login}
+          />
         ) : (
-          /* Apps Panel */
-          <>
-            <section className="section">
-              <h2 className="section-title">Mis aplicaciones</h2>
-
-              {rawApps.length === 0 ? (
-                <div className="empty-state">
-                  <p className="empty-state-text">📭 No hay aplicaciones asignadas a tu usuario.</p>
-                </div>
-              ) : (
-                <div className="apps-grid">
-                  {rawApps.map((app) => (
-                    <div key={app.app_id} className="app-card">
-                      <div className="app-card-header">
-                        <h3 className="app-title">{app.app}</h3>
-                        <span className="app-badge">
-                          {app.clients?.length || 0} cliente{app.clients?.length !== 1 ? "s" : ""}
-                        </span>
-                      </div>
-
-                      {app.description && (
-                        <p className="app-description">{app.description}</p>
-                      )}
-
-                      {app.clients && app.clients.length > 0 && (() => {
-                        const selectedClient = getSelectedClient(app);
-                        const canLaunch = !!selectedClient?.is_accessible;
-
-                        return (
-                          <>
-                            <div className="form-group">
-                              <label className="label">Seleccionar cliente:</label>
-                              <select
-                                className="select"
-                                value={selectedClientByApp[app.app_id] || ""}
-                                onChange={(e) =>
-                                  setSelectedClientByApp((prev) => ({
-                                    ...prev,
-                                    [app.app_id]: Number(e.target.value),
-                                  }))
-                                }
-                              >
-                                {app.clients?.map((client) => (
-                                  <option key={client.id} value={client.id}>
-                                    {client.name} ({getClientStatusLabel(client)})
-                                  </option>
-                                ))}
-                              </select>
-
-                              {selectedClient && (
-                                <div
-                                  className={`rs-client-status rs-status-${selectedClient.subscription_status}${
-                                    selectedClient.is_expiring_soon ? " rs-status-expiring" : ""
-                                  }`}
-                                >
-                                  {getClientStatusText(selectedClient)}
-                                </div>
-                              )}
-                            </div>
-
-                            <button
-                              className={`button button-primary button-fullwidth${!canLaunch ? " rs-button-disabled" : ""}`}
-                              onClick={() => enterApp(app)}
-                              disabled={!canLaunch}
-                            >
-                              {canLaunch ? `▶ Entrar a ${app.app}` : "No disponible"}
-                            </button>
-                          </>
-                        );
-                      })()}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-          </>
+          <AppsView
+            rawApps={rawApps}
+            selectedClientByApp={selectedClientByApp}
+            setSelectedClientByApp={setSelectedClientByApp}
+            enterApp={enterApp}
+          />
         )}
       </main>
 
-      {/* Footer */}
+      <AdminModal
+        adminModalOpen={adminModalOpen}
+        closeAdminModal={closeAdminModal}
+        adminLoadingClients={adminLoadingClients}
+        adminClients={adminClients}
+        adminSelectedClientId={adminSelectedClientId}
+        setAdminSelectedClientId={setAdminSelectedClientId}
+        fetchAdminClients={fetchAdminClients}
+        adminSelectedClientName={adminSelectedClientName}
+        isSystemAdmin={isSystemAdmin}
+        adminTab={adminTab}
+        setAdminTab={setAdminTab}
+        adminActionMsg={adminActionMsg}
+        adminActionMsgType={adminActionMsgType}
+        adminLoadingData={adminLoadingData}
+        adminGlobalUsers={adminGlobalUsers}
+        adminGlobalApplications={adminGlobalApplications}
+        adminGlobalClients={adminGlobalClients}
+        adminUsers={adminUsers}
+        adminSubscriptions={adminSubscriptions}
+        adminPermissions={adminPermissions}
+        openAdminEditor={openAdminEditor}
+        adminEditorOpen={adminEditorOpen}
+        closeAdminEditor={closeAdminEditor}
+        adminEditorType={adminEditorType}
+        adminEditorMode={adminEditorMode}
+        adminActionLoading={adminActionLoading}
+        adminCreateUserForm={adminCreateUserForm}
+        setAdminCreateUserForm={setAdminCreateUserForm}
+        adminCreateClientForm={adminCreateClientForm}
+        setAdminCreateClientForm={setAdminCreateClientForm}
+        adminApplicationForm={adminApplicationForm}
+        setAdminApplicationForm={setAdminApplicationForm}
+        adminSubscriptionForm={adminSubscriptionForm}
+        setAdminSubscriptionForm={setAdminSubscriptionForm}
+        adminPermissionForm={adminPermissionForm}
+        setAdminPermissionForm={setAdminPermissionForm}
+        adminAppsCatalog={adminAppsCatalog}
+        adminPermissionUsers={adminPermissionUsers}
+        adminPermissionApps={adminPermissionApps}
+        handleCreateGlobalUser={handleCreateGlobalUser}
+        handleUpdateGlobalUser={handleUpdateGlobalUser}
+        handleCreateGlobalClient={handleCreateGlobalClient}
+        handleUpdateGlobalClient={handleUpdateGlobalClient}
+        handleCreateGlobalApplication={handleCreateGlobalApplication}
+        handleUpdateGlobalApplication={handleUpdateGlobalApplication}
+        handleCreateSubscription={handleCreateSubscription}
+        handleUpdateSubscription={handleUpdateSubscription}
+        handleCreatePermission={handleCreatePermission}
+        handleUpdatePermissionRole={handleUpdatePermissionRole}
+        reloadCurrentAdminTab={() => fetchAdminTabData(adminTab, adminSelectedClientId)}
+      />
+
       <footer className="app-footer">
-        <p className="app-footer-text">© 2026 RodelSoft. Todos los derechos reservados.</p>
+        <p className="app-footer-text">
+          © 2026 RodelSoft. Todos los derechos reservados.
+        </p>
       </footer>
     </div>
   );

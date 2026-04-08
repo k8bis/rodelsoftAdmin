@@ -1,9 +1,8 @@
-import os
 import time
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
-from db import pos_engine, control_engine
+from db import pos_engine
 from pos_routes import router as pos_router
 
 app = FastAPI(title="RodelSoft - POS")
@@ -27,4 +26,3 @@ def wait_engine(engine_to_check, label: str, retries: int = 20):
 @app.on_event("startup")
 def _startup():
     wait_engine(pos_engine, "POS")
-    wait_engine(control_engine, "CONTROL")

@@ -1,0 +1,700 @@
+  }
+
+  if (type === "global-application") {
+    setAdminApplicationForm({
+      app_id: mode === "edit" && row?.app_id ? String(row.app_id) : "",
+      app_name: mode === "edit" ? row?.app_name || "" : "",
+      slug: mode === "edit" ? row?.slug || "" : "",
+      launch_mode: mode === "edit" ? row?.launch_mode || "dynamic_proxy" : "dynamic_proxy",
+      description: mode === "edit" ? row?.description || "" : "",
+    });
+  }
+
+  if (type === "subscription") {
+    if (mode === "edit" && row) {
+      setAdminSubscriptionForm({
+        client_id: adminSelectedClientId ? String(adminSelectedClientId) : "",
+        app_id: row.app_id ? String(row.app_id) : "",
+        status: row.status || "active",
+        is_enabled: Boolean(row.is_enabled),
+        start_date: row.start_date || "",
+        end_date: row.end_date || "",
+      });
+    } else {
+      setAdminSubscriptionForm({
+        client_id: adminSelectedClientId ? String(adminSelectedClientId) : "",
+        app_id: "",
+        status: "active",
+        is_enabled: true,
+        start_date: "",
+        end_date: "",
+      });
+    }
+  }
+
+  if (type === "permission") {
+    if (mode === "edit" && row) {
+      setAdminPermissionForm({
+        permission_id: row?.permission_id ? String(row.permission_id) : "",
+        user_id: row?.user_id ? String(row.user_id) : "",
+        username: row?.username || "",
+        client_id: row?.client_id ? String(row.client_id) : (adminSelectedClientId ? String(adminSelectedClientId) : ""),
+        app_id: row?.app_id ? String(row.app_id) : "",
+        role: row?.role || "member",
+      });
+    } else {
+      setAdminPermissionForm({
+        permission_id: "",
+        user_id: "",
+        username: "",
+        client_id: adminSelectedClientId ? String(adminSelectedClientId) : "",
+        app_id: "",
+        role: "member",
+      });
+    }
+  }
+
+  setAdminEditorOpen(true);
+};
+
+  const createGlobalUser = async () => {
+    resetAdminActionMessages();
+
+    if (!adminCreateUserForm.username.trim()) {
+      setAdminActionMsg("El username es obligatorio.");
+      setAdminActionMsgType("warning");
+      return false;
+    }
+
+    if (!adminCreateUserForm.password.trim()) {
+      setAdminActionMsg("La contraseña es obligatoria.");
+      setAdminActionMsgType("warning");
+      return false;
+    }
+
+    setAdminActionLoading(true);
+
+    try {
+      const r = await fetch(ADMIN_CREATE_USER_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          username: adminCreateUserForm.username.trim(),
+          password: adminCreateUserForm.password,
+          email: adminCreateUserForm.email.trim() || null,
+          is_system_admin: Boolean(adminCreateUserForm.is_system_admin),
+        }),
+      });
+
+      const data = await r.json().catch(() => null);
+
+      if (!r.ok) {
+        throw new Error(data?.detail || `No se pudo crear usuario (${r.status})`);
+      }
+
+      setAdminActionMsg(data?.message || "Usuario creado correctamente.");
+      setAdminActionMsgType("success");
+
+      setAdminCreateUserForm({
+        username: "",
+        password: "",
+        email: "",
+        is_system_admin: false,
+      });
+
+      if (adminTab === "global-users") {
+        await fetchAdminTabData("global-users", adminSelectedClientId);
+      }
+
+      return true;
+    } catch (e) {
+      setAdminActionMsg(String(e.message || e));
+      setAdminActionMsgType("error");
+      return false;
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const createGlobalClient = async () => {
+    resetAdminActionMessages();
+
+    if (!adminCreateClientForm.client_name.trim()) {
+      setAdminActionMsg("El nombre del cliente es obligatorio.");
+      setAdminActionMsgType("warning");
+      return false;
+    }
+
+    setAdminActionLoading(true);
+
+    try {
+      const r = await fetch(ADMIN_CREATE_CLIENT_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          client_name: adminCreateClientForm.client_name.trim(),
+        }),
+      });
+
+      const data = await r.json().catch(() => null);
+
+      if (!r.ok) {
+        throw new Error(data?.detail || `No se pudo crear cliente (${r.status})`);
+      }
+
+      setAdminActionMsg(data?.message || "Cliente creado correctamente.");
+      setAdminActionMsgType("success");
+
+      setAdminCreateClientForm({ client_id: "", client_name: "" });
+
+      await fetchAdminClients();
+
+      if (adminTab === "global-clients") {
+        await fetchAdminTabData("global-clients", adminSelectedClientId);
+      }
+
+      return true;
+    } catch (e) {
+      setAdminActionMsg(String(e.message || e));
+      setAdminActionMsgType("error");
+      return false;
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const updateGlobalClient = async () => {
+    resetAdminActionMessages();
+
+    if (!adminCreateClientForm.client_id) {
+      setAdminActionMsg("No se encontró el cliente a editar.");
+      setAdminActionMsgType("error");
+      return false;
+    }
+
+    if (!adminCreateClientForm.client_name.trim()) {
+      setAdminActionMsg("El nombre del cliente es obligatorio.");
+      setAdminActionMsgType("warning");
+      return false;
+    }
+
+    setAdminActionLoading(true);
+
+    try {
+      const r = await fetch(ADMIN_UPDATE_CLIENT_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          client_id: Number(adminCreateClientForm.client_id),
+          client_name: adminCreateClientForm.client_name.trim(),
+        }),
+      });
+
+      const data = await r.json().catch(() => null);
+
+      if (!r.ok) {
+        throw new Error(data?.detail || `No se pudo actualizar cliente (${r.status})`);
+      }
+
+      setAdminActionMsg(data?.message || "Cliente actualizado correctamente.");
+      setAdminActionMsgType("success");
+
+      await fetchAdminClients();
+
+      if (adminTab === "global-clients") {
+        await fetchAdminTabData("global-clients", adminSelectedClientId);
+      }
+
+      return true;
+    } catch (e) {
+      setAdminActionMsg(String(e.message || e));
+      setAdminActionMsgType("error");
+      return false;
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const upsertSubscription = async () => {
+    resetAdminActionMessages();
+
+    if (!adminSubscriptionForm.client_id) {
+      setAdminActionMsg("Debes seleccionar un cliente.");
+      setAdminActionMsgType("warning");
+      return false;
+    }
+
+    if (!adminSubscriptionForm.app_id) {
+      setAdminActionMsg("Debes seleccionar una aplicación.");
+      setAdminActionMsgType("warning");
+      return false;
+    }
+
+    setAdminActionLoading(true);
+
+    try {
+      const targetClientId = adminSubscriptionForm.client_id;
+
+      const r = await fetch(ADMIN_UPSERT_SUBSCRIPTION_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          client_id: Number(adminSubscriptionForm.client_id),
+          app_id: Number(adminSubscriptionForm.app_id),
+          status: adminSubscriptionForm.status,
+          is_enabled: Boolean(adminSubscriptionForm.is_enabled),
+          start_date: adminSubscriptionForm.start_date || null,
+          end_date: adminSubscriptionForm.end_date || null,
+        }),
+      });
+
+      const data = await r.json().catch(() => null);
+
+      if (!r.ok) {
+        throw new Error(data?.detail || `No se pudo guardar suscripción (${r.status})`);
+      }
+
+      setAdminActionMsg(data?.message || "Suscripción guardada correctamente.");
+      setAdminActionMsgType("success");
+
+      setAdminSubscriptionForm({
+        client_id: adminSelectedClientId ? String(adminSelectedClientId) : "",
+        app_id: "",
+        status: "active",
+        is_enabled: true,
+        start_date: "",
+        end_date: "",
+      });
+
+      await fetchAdminTabData("subscriptions", targetClientId);
+
+      if (adminTab === "global-clients") {
+        await fetchAdminTabData("global-clients", adminSelectedClientId);
+      }
+
+      return true;
+    } catch (e) {
+      setAdminActionMsg(String(e.message || e));
+      setAdminActionMsgType("error");
+      return false;
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const updateSubscription = async () => {
+    resetAdminActionMessages();
+
+    if (!adminSubscriptionForm.client_id) {
+      setAdminActionMsg("Debes seleccionar un cliente.");
+      setAdminActionMsgType("warning");
+      return false;
+    }
+
+    if (!adminSubscriptionForm.app_id) {
+      setAdminActionMsg("Debes seleccionar una aplicación.");
+      setAdminActionMsgType("warning");
+      return false;
+    }
+
+    setAdminActionLoading(true);
+
+    try {
+      const targetClientId = adminSubscriptionForm.client_id;
+
+      const r = await fetch(ADMIN_UPDATE_SUBSCRIPTION_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          client_id: Number(adminSubscriptionForm.client_id),
+          app_id: Number(adminSubscriptionForm.app_id),
+          status: adminSubscriptionForm.status,
+          is_enabled: Boolean(adminSubscriptionForm.is_enabled),
+          start_date: adminSubscriptionForm.start_date || null,
+          end_date: adminSubscriptionForm.end_date || null,
+        }),
+      });
+
+      const data = await r.json().catch(() => null);
+
+      if (!r.ok) {
+        throw new Error(data?.detail || `No se pudo actualizar suscripción (${r.status})`);
+      }
+
+      setAdminActionMsg(data?.message || "Suscripción actualizada correctamente.");
+      setAdminActionMsgType("success");
+
+      await fetchAdminTabData("subscriptions", targetClientId);
+
+      if (adminTab === "global-clients") {
+        await fetchAdminTabData("global-clients", adminSelectedClientId);
+      }
+
+      return true;
+    } catch (e) {
+      setAdminActionMsg(String(e.message || e));
+      setAdminActionMsgType("error");
+      return false;
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const updatePermissionRole = async () => {
+    resetAdminActionMessages();
+
+    if (!adminPermissionForm.permission_id) {
+      setAdminActionMsg("No se encontró el permiso a editar.");
+      setAdminActionMsgType("error");
+      return false;
+    }
+
+    if (!adminPermissionForm.role.trim()) {
+      setAdminActionMsg("El rol es obligatorio.");
+      setAdminActionMsgType("warning");
+      return false;
+    }
+
+    setAdminActionLoading(true);
+
+    try {
+      const r = await fetch(ADMIN_UPDATE_PERMISSION_ROLE_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          permission_id: Number(adminPermissionForm.permission_id),
+          role: adminPermissionForm.role.trim(),
+        }),
+      });
+
+      const data = await r.json().catch(() => null);
+
+      if (!r.ok) {
+        throw new Error(data?.detail || `No se pudo actualizar el rol (${r.status})`);
+      }
+
+      setAdminActionMsg(data?.message || "Rol actualizado correctamente.");
+      setAdminActionMsgType("success");
+
+      await fetchAdminTabData("permissions", adminSelectedClientId);
+
+      return true;
+    } catch (e) {
+      setAdminActionMsg(String(e.message || e));
+      setAdminActionMsgType("error");
+      return false;
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const updateGlobalUser = async () => {
+    resetAdminActionMessages();
+
+    if (!adminCreateUserForm.user_id) {
+      setAdminActionMsg("No se encontró el usuario a editar.");
+      setAdminActionMsgType("error");
+      return false;
+    }
+
+    if (!adminCreateUserForm.username.trim()) {
+      setAdminActionMsg("El username es obligatorio.");
+      setAdminActionMsgType("warning");
+      return false;
+    }
+
+    setAdminActionLoading(true);
+
+    try {
+      const r = await fetch(ADMIN_UPDATE_USER_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          user_id: Number(adminCreateUserForm.user_id),
+          username: adminCreateUserForm.username.trim(),
+          email: adminCreateUserForm.email.trim() || null,
+          is_system_admin: Boolean(adminCreateUserForm.is_system_admin),
+        }),
+      });
+
+      const data = await r.json().catch(() => null);
+
+      if (!r.ok) {
+        throw new Error(data?.detail || `No se pudo actualizar usuario (${r.status})`);
+      }
+
+      setAdminActionMsg(data?.message || "Usuario actualizado correctamente.");
+      setAdminActionMsgType("success");
+
+      await fetchAdminTabData("global-users", adminSelectedClientId);
+      return true;
+    } catch (e) {
+      setAdminActionMsg(String(e.message || e));
+      setAdminActionMsgType("error");
+      return false;
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const createGlobalApplication = async () => {
+    resetAdminActionMessages();
+
+    if (!adminApplicationForm.app_name.trim()) {
+      setAdminActionMsg("El nombre de la aplicación es obligatorio.");
+      setAdminActionMsgType("warning");
+      return false;
+    }
+
+    setAdminActionLoading(true);
+
+    try {
+      const r = await fetch(ADMIN_CREATE_APPLICATION_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          app_name: adminApplicationForm.app_name.trim(),
+          slug: adminApplicationForm.slug.trim() || null,
+          launch_mode: adminApplicationForm.launch_mode.trim() || "dynamic_proxy",
+          description: adminApplicationForm.description.trim() || null,
+        }),
+      });
+
+      const data = await r.json().catch(() => null);
+
+      if (!r.ok) {
+        throw new Error(data?.detail || `No se pudo crear aplicación (${r.status})`);
+      }
+
+      setAdminActionMsg(data?.message || "Aplicación creada correctamente.");
+      setAdminActionMsgType("success");
+
+      setAdminApplicationForm({
+        app_id: "",
+        app_name: "",
+        slug: "",
+        launch_mode: "dynamic_proxy",
+        description: "",
+      });
+
+      await fetchAdminTabData("global-applications", adminSelectedClientId);
+      await loadAdminAppsCatalog();
+
+      return true;
+    } catch (e) {
+      setAdminActionMsg(String(e.message || e));
+      setAdminActionMsgType("error");
+      return false;
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const updateGlobalApplication = async () => {
+    resetAdminActionMessages();
+
+    if (!adminApplicationForm.app_id) {
+      setAdminActionMsg("No se encontró la aplicación a editar.");
+      setAdminActionMsgType("error");
+      return false;
+    }
+
+    if (!adminApplicationForm.app_name.trim()) {
+      setAdminActionMsg("El nombre de la aplicación es obligatorio.");
+      setAdminActionMsgType("warning");
+      return false;
+    }
+
+    setAdminActionLoading(true);
+
+    try {
+      const r = await fetch(ADMIN_UPDATE_APPLICATION_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          app_id: Number(adminApplicationForm.app_id),
+          app_name: adminApplicationForm.app_name.trim(),
+          slug: adminApplicationForm.slug.trim() || null,
+          launch_mode: adminApplicationForm.launch_mode.trim() || "dynamic_proxy",
+          description: adminApplicationForm.description.trim() || null,
+        }),
+      });
+
+      const data = await r.json().catch(() => null);
+
+      if (!r.ok) {
+        throw new Error(data?.detail || `No se pudo actualizar aplicación (${r.status})`);
+      }
+
+      setAdminActionMsg(data?.message || "Aplicación actualizada correctamente.");
+      setAdminActionMsgType("success");
+
+      await fetchAdminTabData("global-applications", adminSelectedClientId);
+      await loadAdminAppsCatalog();
+
+      return true;
+    } catch (e) {
+      setAdminActionMsg(String(e.message || e));
+      setAdminActionMsgType("error");
+      return false;
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const createPermission = async () => {
+    resetAdminActionMessages();
+
+    if (!String(adminPermissionForm.username || "").trim()) {
+      setAdminActionMsg("Debes capturar el username.");
+      setAdminActionMsgType("warning");
+      return false;
+    }
+
+    if (!adminPermissionForm.client_id) {
+      setAdminActionMsg("Debes seleccionar un cliente.");
+      setAdminActionMsgType("warning");
+      return false;
+    }
+
+    if (!adminPermissionForm.app_id) {
+      setAdminActionMsg("Debes seleccionar una aplicación.");
+      setAdminActionMsgType("warning");
+      return false;
+    }
+
+    setAdminActionLoading(true);
+
+    try {
+      const r = await fetch(ADMIN_CREATE_PERMISSION_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          username: String(adminPermissionForm.username || "").trim(),
+          client_id: Number(adminPermissionForm.client_id),
+          app_id: Number(adminPermissionForm.app_id),
+          role: adminPermissionForm.role,
+        }),
+      });
+
+      const data = await r.json().catch(() => null);
+
+      if (!r.ok) {
+        throw new Error(data?.detail || `No se pudo crear permiso (${r.status})`);
+      }
+
+      setAdminActionMsg(data?.message || "Permiso creado correctamente.");
+      setAdminActionMsgType("success");
+
+      await fetchAdminTabData("permissions", adminSelectedClientId);
+
+      setAdminPermissionForm({
+        permission_id: "",
+        user_id: "",
+        username: "",
+        client_id: adminSelectedClientId ? String(adminSelectedClientId) : "",
+        app_id: "",
+        role: "member",
+      });
+
+      return true;
+    } catch (e) {
+      setAdminActionMsg(String(e.message || e));
+      setAdminActionMsgType("error");
+      return false;
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+    
+  const adminSelectedClientName = useMemo(() => {
+    const found = adminClients.find((c) => String(c.client_id) === String(adminSelectedClientId));
+    return found?.client_name || "";
+  }, [adminClients, adminSelectedClientId]);
+
+  // 🔥 mientras valida sesión, no mostrar login prematuramente
+  if (initializing) {
+    return (
+      <div className="app-container">
+        <header className="rs-shell-header">
+          <div className="rs-shell-left">
+            <picture>
+              <source srcSet="/logos/rodelsoft-monogram-hex.svg" type="image/svg+xml" />
+              <img src="/logos/rodelsoft-monogram-hex.png" alt="RodelSoft" className="rs-shell-logo" />
+            </picture>
+            <div className="rs-shell-brand">
+              <h1 className="rs-shell-title">Portal RodelSoft</h1>
+              <p className="rs-shell-subtitle">Acceso central a tus aplicaciones</p>
+            </div>
+          </div>
+          <div className="rs-shell-right"></div>
+        </header>
+
+        <main className="main-content">
+          <div className="login-container">
+            <div className="login-card">
+              <div className="login-header">
+                <h2 className="login-title">Cargando sesión...</h2>
+                <p className="login-subtitle">Validando acceso a tus aplicaciones</p>
+              </div>
+            </div>
+          </div>
+        </main>
+
+        <footer className="app-footer">
+          <p className="app-footer-text">© 2026 RodelSoft. Todos los derechos reservados.</p>
+        </footer>
+      </div>
+    );
+  }
+
+  return (
+    <div className="app-container">
+      {/* Header */}
+      <header className="rs-shell-header">
+        <div className="rs-shell-left">
+          <picture>
+            <source srcSet="/logos/rodelsoft-monogram-hex.svg" type="image/svg+xml" />
+            <img src="/logos/rodelsoft-monogram-hex.png" alt="RodelSoft" className="rs-shell-logo" />
+          </picture>
+          <div className="rs-shell-brand">
+            <h1 className="rs-shell-title">Portal RodelSoft</h1>
+            <p className="rs-shell-subtitle">Acceso central a tus aplicaciones</p>
+          </div>
+        </div>
+
+        <div className="rs-shell-right">
+          {authed && (
+            <div className="rs-user-menu">
+              <button
+                className="rs-user-trigger"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setUserMenuOpen((prev) => !prev);
+                }}
+                type="button"
+              >
+                👤 {username}
+              </button>
+
+              {userMenuOpen && (
+                <div
+                  className="rs-user-dropdown"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    className="rs-user-dropdown-item"
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      fetchMyApps();
+                    }}

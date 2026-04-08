@@ -18,35 +18,14 @@ POS_DATABASE_URL = (
     f"@{POS_MYSQL_HOST}:{POS_MYSQL_PORT}/{POS_MYSQL_DATABASE}"
 )
 
-# =========================
-# Configuración DB de control (Portal / IAM)
-# =========================
-CONTROL_MYSQL_HOST = os.getenv("CONTROL_MYSQL_HOST", "mysql")
-CONTROL_MYSQL_PORT = int(os.getenv("CONTROL_MYSQL_PORT", "3306"))
-CONTROL_MYSQL_USER = os.getenv("CONTROL_MYSQL_USER", "proyecto_user")
-CONTROL_MYSQL_PASSWORD = os.getenv("CONTROL_MYSQL_PASSWORD")
-CONTROL_MYSQL_DATABASE = os.getenv("CONTROL_MYSQL_DATABASE", "proyecto_db")
-
-CONTROL_DATABASE_URL = (
-    f"mysql+pymysql://{CONTROL_MYSQL_USER}:{CONTROL_MYSQL_PASSWORD}"
-    f"@{CONTROL_MYSQL_HOST}:{CONTROL_MYSQL_PORT}/{CONTROL_MYSQL_DATABASE}"
-)
-
 MAX_RETRIES = int(os.getenv("DB_MAX_RETRIES", "30"))
 RETRY_DELAY = float(os.getenv("DB_RETRY_DELAY", "2"))
 
 # =========================
-# Engines
+# Engine POS
 # =========================
 pos_engine = create_engine(
     POS_DATABASE_URL,
-    pool_pre_ping=True,
-    pool_recycle=1800,
-    future=True,
-)
-
-control_engine = create_engine(
-    CONTROL_DATABASE_URL,
     pool_pre_ping=True,
     pool_recycle=1800,
     future=True,
@@ -70,12 +49,10 @@ def wait_for_db(engine_to_check, label: str):
 
     raise RuntimeError(f"No se pudo conectar a MySQL ({label}) tras {MAX_RETRIES} intentos: {last_error}")
 
-# Esperar ambas conexiones
+# Esperar solo POS DB
 wait_for_db(pos_engine, "POS")
-wait_for_db(control_engine, "CONTROL")
 
 PosSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=pos_engine, future=True)
-ControlSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=control_engine, future=True)
 
 Base = declarative_base()
 
@@ -89,13 +66,6 @@ def get_pos_db():
 # Compatibilidad temporal con imports existentes
 def get_db():
     yield from get_pos_db()
-
-def get_control_db():
-    db = ControlSessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 # =========================
 # Modelos para el Punto de Venta (viven en POS DB)

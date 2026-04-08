@@ -1,0 +1,571 @@
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="rs-admin-close"
+                      onClick={closeAdminEditor}
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <div className="rs-admin-editor-body">
+                    {adminEditorType === "global-user" && (
+                      <div className="rs-admin-editor-form">
+                        <div className="form-group">
+                          <label className="label">Username</label>
+                          <input
+                            className="input"
+                            type="text"
+                            value={adminCreateUserForm.username}
+                            onChange={(e) =>
+                              setAdminCreateUserForm((prev) => ({
+                                ...prev,
+                                username: e.target.value,
+                              }))
+                            }
+                            placeholder="usuario_nuevo"
+                            disabled={adminActionLoading}
+                          />
+                        </div>
+
+                        {adminEditorMode === "create" && (
+                          <div className="form-group">
+                            <label className="label">Password</label>
+                            <input
+                              className="input"
+                              type="password"
+                              value={adminCreateUserForm.password}
+                              onChange={(e) =>
+                                setAdminCreateUserForm((prev) => ({
+                                  ...prev,
+                                  password: e.target.value,
+                                }))
+                              }
+                              placeholder="Contraseña inicial"
+                              disabled={adminActionLoading}
+                            />
+                          </div>
+                        )}
+
+                        <div className="form-group">
+                          <label className="label">Email (opcional)</label>
+                          <input
+                            className="input"
+                            type="email"
+                            value={adminCreateUserForm.email}
+                            onChange={(e) =>
+                              setAdminCreateUserForm((prev) => ({
+                                ...prev,
+                                email: e.target.value,
+                              }))
+                            }
+                            placeholder="correo@empresa.com"
+                            disabled={adminActionLoading}
+                          />
+                        </div>
+
+                        <label className="rs-admin-checkbox">
+                          <input
+                            type="checkbox"
+                            checked={adminCreateUserForm.is_system_admin}
+                            onChange={(e) =>
+                              setAdminCreateUserForm((prev) => ({
+                                ...prev,
+                                is_system_admin: e.target.checked,
+                              }))
+                            }
+                            disabled={adminActionLoading}
+                          />
+                          <span>Registrar también como system_admin</span>
+                        </label>
+                      </div>
+                    )}
+
+                    {adminEditorType === "global-client" && (
+                      <div className="rs-admin-editor-form">
+                        <div className="form-group">
+                          <label className="label">Nombre del cliente</label>
+                          <input
+                            className="input"
+                            type="text"
+                            value={adminCreateClientForm.client_name}
+                            onChange={(e) =>
+                              setAdminCreateClientForm((prev) => ({
+                                ...prev,
+                                client_name: e.target.value,
+                              }))
+                            }
+                            placeholder="Nombre comercial del cliente"
+                            disabled={adminActionLoading}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {adminEditorType === "global-application" && (
+                      <div className="rs-admin-editor-form">
+                        <div className="form-group">
+                          <label className="label">Nombre de la aplicación</label>
+                          <input
+                            className="input"
+                            type="text"
+                            value={adminApplicationForm.app_name}
+                            onChange={(e) =>
+                              setAdminApplicationForm((prev) => ({
+                                ...prev,
+                                app_name: e.target.value,
+                              }))
+                            }
+                            placeholder="Nombre de la aplicación"
+                            disabled={adminActionLoading}
+                          />
+                        </div>
+
+                        <div className="form-group">
+                          <label className="label">Slug (opcional)</label>
+                          <input
+                            className="input"
+                            type="text"
+                            value={adminApplicationForm.slug}
+                            onChange={(e) =>
+                              setAdminApplicationForm((prev) => ({
+                                ...prev,
+                                slug: e.target.value,
+                              }))
+                            }
+                            placeholder="mi-app"
+                            disabled={adminActionLoading}
+                          />
+                        </div>
+
+                        <div className="form-group">
+                          <label className="label">Launch mode</label>
+                          <select
+                            value={adminApplicationForm.launch_mode}
+                            onChange={(e) =>
+                              setAdminApplicationForm((prev) => ({
+                                ...prev,
+                                launch_mode: e.target.value,
+                              }))
+                            }
+                          >
+                            <option value="dynamic_proxy">dynamic_proxy</option>
+                            <option value="redirect">redirect</option>
+                          </select>
+                        </div>
+
+                        <div className="form-group">
+                          <label className="label">Descripción (opcional)</label>
+                          <input
+                            className="input"
+                            type="text"
+                            value={adminApplicationForm.description}
+                            onChange={(e) =>
+                              setAdminApplicationForm((prev) => ({
+                                ...prev,
+                                description: e.target.value,
+                              }))
+                            }
+                            placeholder="Descripción corta"
+                            disabled={adminActionLoading}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {adminEditorType === "subscription" && (
+                      <div className="rs-admin-editor-form">
+                        <div className="form-group">
+                          <label className="label">Cliente</label>
+                          <select
+                            className="select"
+                            value={adminSubscriptionForm.client_id}
+                            onChange={(e) =>
+                              setAdminSubscriptionForm((prev) => ({
+                                ...prev,
+                                client_id: e.target.value,
+                              }))
+                            }
+                            disabled={adminActionLoading || adminEditorMode === "edit"}
+                          >
+                            <option value="">Selecciona un cliente</option>
+                            {adminClients.map((client) => (
+                              <option key={`editor-sub-client-${client.client_id}`} value={client.client_id}>
+                                {client.client_name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="form-group">
+                          <label className="label">Aplicación</label>
+                          <select
+                            className="select"
+                            value={adminSubscriptionForm.app_id}
+                            onChange={(e) =>
+                              setAdminSubscriptionForm((prev) => ({
+                                ...prev,
+                                app_id: e.target.value,
+                              }))
+                            }
+                            disabled={adminActionLoading || adminEditorMode === "edit"}
+                          >
+                            <option value="">Selecciona una aplicación</option>
+                            {adminAppsCatalog.map((app) => (
+                              <option key={`editor-sub-app-${app.id}`} value={app.id}>
+                                {app.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="rs-admin-inline-grid">
+                          <div className="form-group">
+                            <label className="label">Status</label>
+                            <select
+                              className="select"
+                              value={adminSubscriptionForm.status}
+                              onChange={(e) =>
+                                setAdminSubscriptionForm((prev) => ({
+                                  ...prev,
+                                  status: e.target.value,
+                                }))
+                              }
+                              disabled={adminActionLoading}
+                            >
+                              <option value="trial">trial</option>
+                              <option value="active">active</option>
+                              <option value="suspended">suspended</option>
+                              <option value="expired">expired</option>
+                            </select>
+                          </div>
+
+                          <div className="form-group">
+                            <label className="label">Habilitada</label>
+                            <select
+                              className="select"
+                              value={adminSubscriptionForm.is_enabled ? "1" : "0"}
+                              onChange={(e) =>
+                                setAdminSubscriptionForm((prev) => ({
+                                  ...prev,
+                                  is_enabled: e.target.value === "1",
+                                }))
+                              }
+                              disabled={adminActionLoading}
+                            >
+                              <option value="1">Sí</option>
+                              <option value="0">No</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="rs-admin-inline-grid">
+                          <div className="form-group">
+                            <label className="label">Inicio (YYYY-MM-DD)</label>
+                            <input
+                              className="input"
+                              type="date"
+                              value={adminSubscriptionForm.start_date}
+                              onChange={(e) =>
+                                setAdminSubscriptionForm((prev) => ({
+                                  ...prev,
+                                  start_date: e.target.value,
+                                }))
+                              }
+                              disabled={adminActionLoading}
+                            />
+                          </div>
+
+                          <div className="form-group">
+                            <label className="label">Fin (YYYY-MM-DD)</label>
+                            <input
+                              className="input"
+                              type="date"
+                              value={adminSubscriptionForm.end_date}
+                              onChange={(e) =>
+                                setAdminSubscriptionForm((prev) => ({
+                                  ...prev,
+                                  end_date: e.target.value,
+                                }))
+                              }
+                              disabled={adminActionLoading}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {adminEditorType === "permission" && (
+                      <>
+                        {adminEditorMode === "create" ? (
+                          <label className="rs-admin-form-field">
+                            <span>Username</span>
+                            <input
+                              type="text"
+                              value={adminPermissionForm.username}
+                              onChange={(e) =>
+                                setAdminPermissionForm((prev) => ({
+                                  ...prev,
+                                  username: e.target.value,
+                                }))
+                              }
+                              placeholder="username"
+                            />
+                          </label>
+                        ) : (
+                          <label className="rs-admin-form-field">
+                            <span>Usuario</span>
+                            <input
+                              type="text"
+                              value={adminPermissionForm.username || ""}
+                              readOnly
+                            />
+                          </label>
+                        )}
+
+                        <label className="rs-admin-form-field">
+                          <span>Cliente</span>
+                          <select
+                            value={adminPermissionForm.client_id}
+                            onChange={(e) =>
+                              setAdminPermissionForm((prev) => ({
+                                ...prev,
+                                client_id: e.target.value,
+                              }))
+                            }
+                            disabled={adminEditorMode === "edit"}
+                          >
+                            <option value="">Selecciona un cliente</option>
+                            {adminClients.map((row) => (
+                              <option key={`perm-client-${row.client_id}`} value={row.client_id}>
+                                {row.client_name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <label className="rs-admin-form-field">
+                          <span>Aplicación</span>
+                          <select
+                            value={adminPermissionForm.app_id}
+                            onChange={(e) =>
+                              setAdminPermissionForm((prev) => ({
+                                ...prev,
+                                app_id: e.target.value,
+                              }))
+                            }
+                            disabled={adminEditorMode === "edit"}
+                          >
+                            <option value="">Selecciona una aplicación</option>
+                            {adminAppsCatalog.map((row) => (
+                              <option key={`perm-app-${row.app_id || row.id}`} value={row.app_id || row.id}>
+                                {row.app_name || row.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <label className="rs-admin-form-field">
+                          <span>Rol</span>
+                          <select
+                            value={adminPermissionForm.role}
+                            onChange={(e) =>
+                              setAdminPermissionForm((prev) => ({
+                                ...prev,
+                                role: e.target.value,
+                              }))
+                            }
+                          >
+                            <option value="member">member</option>
+                            <option value="app_client_admin">app_client_admin</option>
+                          </select>
+                        </label>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="rs-admin-editor-footer">
+                    <button
+                      type="button"
+                      className="button button-secondary"
+                      onClick={closeAdminEditor}
+                      disabled={adminActionLoading}
+                    >
+                      Cancelar
+                    </button>
+
+                    {adminEditorType === "global-user" && adminEditorMode === "create" && (
+                      <button
+                        type="button"
+                        className="button button-primary"
+                        onClick={async () => {
+                          const ok = await createGlobalUser();
+                          if (ok) closeAdminEditor();
+                        }}
+                        disabled={adminActionLoading}
+                      >
+                        {adminActionLoading ? "Guardando..." : "Guardar"}
+                      </button>
+                    )}
+
+                    {adminEditorType === "global-user" && adminEditorMode === "edit" && (
+                      <button
+                        type="button"
+                        className="button button-primary"
+                        onClick={async () => {
+                          const ok = await updateGlobalUser();
+                          if (ok) closeAdminEditor();
+                        }}
+                        disabled={adminActionLoading}
+                      >
+                        {adminActionLoading ? "Guardando..." : "Guardar cambios"}
+                      </button>
+                    )}
+
+                    {adminEditorType === "global-client" && adminEditorMode === "create" && (
+                      <button
+                        type="button"
+                        className="button button-primary"
+                        onClick={async () => {
+                          const ok = await createGlobalClient();
+                          if (ok) closeAdminEditor();
+                        }}
+                        disabled={adminActionLoading}
+                      >
+                        {adminActionLoading ? "Guardando..." : "Guardar"}
+                      </button>
+                    )}
+
+                    {adminEditorType === "global-client" && adminEditorMode === "edit" && (
+                      <button
+                        type="button"
+                        className="button button-primary"
+                        onClick={async () => {
+                          const ok = await updateGlobalClient();
+                          if (ok) closeAdminEditor();
+                        }}
+                        disabled={adminActionLoading}
+                      >
+                        {adminActionLoading ? "Guardando..." : "Guardar cambios"}
+                      </button>
+                    )}
+
+                    {adminEditorType === "global-application" && adminEditorMode === "create" && (
+                      <button
+                        type="button"
+                        className="button button-primary"
+                        onClick={async () => {
+                          const ok = await createGlobalApplication();
+                          if (ok) closeAdminEditor();
+                        }}
+                        disabled={adminActionLoading}
+                      >
+                        {adminActionLoading ? "Guardando..." : "Guardar"}
+                      </button>
+                    )}
+
+                    {adminEditorType === "global-application" && adminEditorMode === "edit" && (
+                      <button
+                        type="button"
+                        className="button button-primary"
+                        onClick={async () => {
+                          const ok = await updateGlobalApplication();
+                          if (ok) closeAdminEditor();
+                        }}
+                        disabled={adminActionLoading}
+                      >
+                        {adminActionLoading ? "Guardando..." : "Guardar cambios"}
+                      </button>
+                    )}
+
+                    {adminEditorType === "subscription" && adminEditorMode === "create" && (
+                      <button
+                        type="button"
+                        className="button button-primary"
+                        onClick={async () => {
+                          const ok = await upsertSubscription();
+                          if (ok) closeAdminEditor();
+                        }}
+                        disabled={adminActionLoading}
+                      >
+                        {adminActionLoading ? "Guardando..." : "Guardar"}
+                      </button>
+                    )}
+
+                    {adminEditorType === "subscription" && adminEditorMode === "edit" && (
+                      <button
+                        type="button"
+                        className="button button-primary"
+                        onClick={async () => {
+                          const ok = await updateSubscription();
+                          if (ok) closeAdminEditor();
+                        }}
+                        disabled={adminActionLoading}
+                      >
+                        {adminActionLoading ? "Guardando..." : "Guardar cambios"}
+                      </button>
+                    )}
+
+                    {adminEditorType === "permission" && adminEditorMode === "create" && (
+                      <button
+                        type="button"
+                        className="button button-primary"
+                        onClick={async () => {
+                          const ok = await createPermission();
+                          if (ok) closeAdminEditor();
+                        }}
+                        disabled={adminActionLoading}
+                      >
+                        {adminActionLoading ? "Guardando..." : "Guardar"}
+                      </button>
+                    )}
+
+                    {adminEditorType === "permission" && adminEditorMode === "edit" && (
+                      <button
+                        type="button"
+                        className="button button-primary"
+                        onClick={async () => {
+                          const ok = await updatePermissionRole();
+                          if (ok) closeAdminEditor();
+                        }}
+                        disabled={adminActionLoading}
+                      >
+                        {adminActionLoading ? "Guardando..." : "Guardar cambios"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="rs-admin-footer">
+              <button
+                type="button"
+                className="button button-secondary"
+                onClick={() => fetchAdminTabData(adminTab, adminSelectedClientId)}
+                disabled={(!isGlobalAdminTab(adminTab) && !adminSelectedClientId) || adminLoadingData}
+              >
+                {adminLoadingData ? "Cargando..." : "↻ Recargar pestaña"}
+              </button>
+
+              <button
+                type="button"
+                className="button button-primary"
+                onClick={() => closeAdminModal()}
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Footer */}
+      <footer className="app-footer">
+        <p className="app-footer-text">© 2026 RodelSoft. Todos los derechos reservados.</p>
+      </footer>
+    </div>
+  );
+}

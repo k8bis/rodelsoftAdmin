@@ -1,0 +1,700 @@
+import React, { useEffect, useMemo, useState } from "react";
+import "./shared-shell.css";
+import "./App.css";
+
+export default function App() {
+  const [username, setUser] = useState("admin");
+  const [password, setPass] = useState("adminpass");
+  const [authed, setAuthed] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [initializing, setInitializing] = useState(true);
+  const [msgType, setMsgType] = useState("info"); // info, success, error, warning
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [isSystemAdmin, setIsSystemAdmin] = useState(false);
+  const [hasAdminScope, setHasAdminScope] = useState(false);
+
+  // Fuente maestra de apps + permisos desde App1
+  const [rawApps, setRawApps] = useState([]);
+
+  // selección por app -> cliente
+  const [selectedClientByApp, setSelectedClientByApp] = useState({});
+
+  // =========================
+  // FASE 6B - Admin modal state
+  // =========================
+  const [adminModalOpen, setAdminModalOpen] = useState(false);
+  const [adminTab, setAdminTab] = useState("users"); // users | subscriptions | permissions | global-users | global-applications | global-clients
+
+  const [adminClients, setAdminClients] = useState([]);
+  const [adminSelectedClientId, setAdminSelectedClientId] = useState("");
+  const [adminLoadingClients, setAdminLoadingClients] = useState(false);
+  const [adminLoadingData, setAdminLoadingData] = useState(false);
+  const [adminError, setAdminError] = useState("");
+
+  const [adminUsers, setAdminUsers] = useState([]);
+  const [adminSubscriptions, setAdminSubscriptions] = useState([]);
+  const [adminPermissions, setAdminPermissions] = useState([]);
+  const [adminGlobalUsers, setAdminGlobalUsers] = useState([]);
+  const [adminGlobalApplications, setAdminGlobalApplications] = useState([]);
+  const [adminGlobalClients, setAdminGlobalClients] = useState([]);
+  const [adminAppsCatalog, setAdminAppsCatalog] = useState([]);
+
+  const [adminCreateUserForm, setAdminCreateUserForm] = useState({
+    username: "",
+    password: "",
+    email: "",
+    is_system_admin: false,
+  });
+
+  const [adminCreateClientForm, setAdminCreateClientForm] = useState({
+    client_id: "",
+    client_name: "",
+  });
+
+  const [adminApplicationForm, setAdminApplicationForm] = useState({
+    app_id: "",
+    app_name: "",
+    slug: "",
+    launch_mode: "dynamic_proxy",
+    description: "",
+  });
+
+  const [adminSubscriptionForm, setAdminSubscriptionForm] = useState({
+    client_id: "",
+    app_id: "",
+    status: "active",
+    is_enabled: true,
+    start_date: "",
+    end_date: "",
+  });
+
+  const [adminPermissionForm, setAdminPermissionForm] = useState({
+    permission_id: "",
+    user_id: "",
+    username: "",
+    client_id: "",
+    app_id: "",
+    role: "member",
+  });
+
+  const [adminActionLoading, setAdminActionLoading] = useState(false);
+  const [adminActionMsg, setAdminActionMsg] = useState("");
+  const [adminActionMsgType, setAdminActionMsgType] = useState("info");
+  const [adminEditorOpen, setAdminEditorOpen] = useState(false);
+  const [adminEditorMode, setAdminEditorMode] = useState("create"); // create | edit
+  const [adminEditorType, setAdminEditorType] = useState(""); // global-user | global-client | subscription | permission
+
+  // FASE 5.2 - navegación centralizada del portal (sin hardcodes dispersos)
+  const LOGIN_API_URL = "/app1/login";
+  const LOGOUT_API_URL = "/app1/logout";
+  const ME_API_URL = "/app1/me";
+  const MY_APPS_API_URL = "/app1/my/apps";
+  const LAUNCH_BASE_URL = "/launch";
+
+  // FASE 6B - admin endpoints
+  const ADMIN_CLIENTS_API_URL = "/app1/internal/admin/clients";
+  const ADMIN_USERS_BY_CLIENT_API_URL = "/app1/internal/admin/users-by-client";
+  const ADMIN_SUBSCRIPTIONS_BY_CLIENT_API_URL = "/app1/internal/admin/subscriptions-by-client";
+  const ADMIN_PERMISSIONS_BY_CLIENT_API_URL = "/app1/internal/admin/permissions-by-client";
+  const ADMIN_GLOBAL_USERS_API_URL = "/app1/internal/admin/global-users";
+  const ADMIN_GLOBAL_APPLICATIONS_API_URL = "/app1/internal/admin/global-applications";
+  const ADMIN_GLOBAL_CLIENTS_API_URL = "/app1/internal/admin/global-clients";
+  const ADMIN_CREATE_USER_API_URL = "/app1/internal/admin/create-user";
+  const ADMIN_CREATE_CLIENT_API_URL = "/app1/internal/admin/create-client";
+  const ADMIN_UPSERT_SUBSCRIPTION_API_URL = "/app1/internal/admin/upsert-subscription";
+  const ADMIN_UPDATE_CLIENT_API_URL = "/app1/internal/admin/update-client";
+  const ADMIN_UPDATE_SUBSCRIPTION_API_URL = "/app1/internal/admin/update-subscription";
+  const ADMIN_UPDATE_PERMISSION_ROLE_API_URL = "/app1/internal/admin/update-permission-role";
+  const ADMIN_UPDATE_USER_API_URL = "/app1/internal/admin/update-user";
+  const ADMIN_CREATE_APPLICATION_API_URL = "/app1/internal/admin/create-application";
+  const ADMIN_UPDATE_APPLICATION_API_URL = "/app1/internal/admin/update-application";
+  const ADMIN_CREATE_PERMISSION_API_URL = "/app1/internal/admin/create-permission";
+  const APPS_CATALOG_API_URL = "/app1/apps";
+
+  // Lee mensajes enviados por launch-service (?msg=...)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const incomingMsg = params.get("msg");
+    const incomingMsgType = params.get("msg_type");
+
+    if (incomingMsg) {
+      const allowedMsgTypes = ["info", "success", "warning", "error"];
+      const safeMsgType = allowedMsgTypes.includes(incomingMsgType) ? incomingMsgType : "info";
+
+      setMsg(incomingMsg);
+      setMsgType(safeMsgType);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
+
+  // 🔥 al cargar el portal, intenta restaurar sesión desde cookie
+  useEffect(() => {
+    restoreSession();
+  }, []);
+
+  useEffect(() => {
+    const handlePageShow = () => {
+      restoreSession();
+    };
+
+    window.addEventListener("pageshow", handlePageShow);
+
+    return () => {
+      window.removeEventListener("pageshow", handlePageShow);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleClickOutside = () => {
+      setUserMenuOpen(false);
+    };
+
+    if (userMenuOpen) {
+      document.addEventListener("click", handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener("click", handleClickOutside);
+    };
+  }, [userMenuOpen]);
+
+  // Cerrar modal admin con ESC
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === "Escape" && adminEditorOpen) {
+        closeAdminEditor();
+        return;
+      }
+
+      if (e.key === "Escape" && adminModalOpen) {
+        closeAdminModal();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [adminModalOpen, adminEditorOpen]);
+
+  // Si cambia tab o cliente seleccionado dentro del modal, refresca dataset
+  useEffect(() => {
+    if (!adminModalOpen) return;
+
+    if (isGlobalAdminTab(adminTab)) {
+      fetchAdminTabData(adminTab, adminSelectedClientId);
+      return;
+    }
+
+    if (!adminSelectedClientId) return;
+
+    fetchAdminTabData(adminTab, adminSelectedClientId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adminTab, adminSelectedClientId, adminModalOpen]);
+
+  useEffect(() => {
+    if (!adminModalOpen) return;
+
+    if (!isSystemAdmin && (adminTab === "subscriptions" || isGlobalAdminTab(adminTab))) {
+      setAdminTab("users");
+    }
+  }, [adminModalOpen, isSystemAdmin, adminTab]);
+
+  const isGlobalAdminTab = (tab) =>
+    tab === "global-users" || tab === "global-applications" || tab === "global-clients";
+
+  const restoreSession = async () => {
+    setInitializing(true);
+
+    try {
+      const r = await fetch(MY_APPS_API_URL, {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      });
+
+      if (!r.ok) {
+        setAuthed(false);
+        setRawApps([]);
+        setSelectedClientByApp({});
+        setMsg("");
+        setMsgType("info");
+        setIsSystemAdmin(false);
+        setHasAdminScope(false);
+        return;
+      }
+
+      const data = await r.json();
+
+      setRawApps(Array.isArray(data) ? data : []);
+      setAuthed(true);
+
+      // Opcional: intentar obtener usuario real
+      try {
+        const me = await fetch(ME_API_URL, {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+        });
+
+        if (me.ok) {
+          const meData = await me.json();
+
+          if (meData?.user) {
+            setUser(meData.user);
+          }
+
+          setIsSystemAdmin(Boolean(meData?.is_system_admin));
+          setHasAdminScope(Boolean(meData?.has_admin_scope));
+        } else {
+          setIsSystemAdmin(false);
+          setHasAdminScope(false);
+        }
+      } catch {
+        // Si falla /app1/me, no bloqueamos la UI
+      }
+    } catch (e) {
+      console.error("Error restaurando sesión:", e);
+      setAuthed(false);
+      setRawApps([]);
+      setSelectedClientByApp({});
+      setMsg("");
+      setMsgType("info");
+      setIsSystemAdmin(false);
+      setHasAdminScope(false);
+    } finally {
+      setInitializing(false);
+    }
+  };
+
+  const login = async () => {
+    setMsg("");
+    setLoading(true);
+
+    try {
+      const r = await fetch(LOGIN_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ username, password }),
+      });
+
+      if (!r.ok) {
+        const t = await r.text();
+        setMsg(`Login falló (${r.status}): ${t}`);
+        setMsgType("error");
+        setAuthed(false);
+        return;
+      }
+
+      setMsg("Sesión iniciada ✅");
+      setMsgType("success");
+
+      // 🔥 IMPORTANTE: después del login, restaurar sesión completa
+      await restoreSession();
+    } catch (e) {
+      setMsg(`Error de red: ${String(e)}`);
+      setMsgType("error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const logout = async () => {
+    setMsg("");
+    try {
+      await fetch(LOGOUT_API_URL, {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch {}
+
+    setAuthed(false);
+    setRawApps([]);
+    setSelectedClientByApp({});
+    setMsg("");
+    setMsgType("info");
+    setUserMenuOpen(false);
+    setIsSystemAdmin(false);
+    setHasAdminScope(false);
+
+    // Limpieza admin
+    closeAdminModal(true);
+  };
+
+  const fetchMyApps = async () => {
+    setMsg("");
+
+    try {
+      const r = await fetch(MY_APPS_API_URL, {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      });
+
+      if (!r.ok) {
+        const t = await r.text();
+        setMsg(`${MY_APPS_API_URL} falló (${r.status}): ${t}`);
+        setMsgType("error");
+        setRawApps([]);
+        setAuthed(false);
+        return;
+      }
+
+      const data = await r.json();
+      setRawApps(Array.isArray(data) ? data : []);
+      setAuthed(true);
+    } catch (e) {
+      setMsg(`Error ${MY_APPS_API_URL}: ${String(e)}`);
+      setMsgType("error");
+      setRawApps([]);
+      setAuthed(false);
+    }
+  };
+
+  // Si ya hay apps, autoselecciona el primer cliente accesible por app;
+  // si no hay ninguno accesible, toma el primero.
+  useEffect(() => {
+    const next = { ...selectedClientByApp };
+
+    rawApps.forEach((app) => {
+      if (!app?.clients?.length) return;
+      if (!next[app.app_id]) {
+        const firstAccessible = app.clients.find((c) => c.is_accessible);
+        next[app.app_id] = (firstAccessible || app.clients[0]).id;
+      }
+    });
+
+    setSelectedClientByApp(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(rawApps)]);
+
+  const getSelectedClient = (app) => {
+    const selectedId = selectedClientByApp[app.app_id];
+    return app.clients?.find((c) => c.id === Number(selectedId)) || app.clients?.[0] || null;
+  };
+
+  const getClientStatusLabel = (client) => {
+    if (!client) return "";
+
+    if (client.is_expiring_soon) return "VENCE PRONTO";
+
+    switch (client.subscription_status) {
+      case "active":
+        return "ACTIVA";
+      case "trial":
+        return "TRIAL";
+      case "expired":
+        return "VENCIDA";
+      case "suspended":
+        return "SUSPENDIDA";
+      case "missing":
+        return "SIN SUSCRIPCIÓN";
+      default:
+        return (client.subscription_status || "SIN ESTADO").toUpperCase();
+    }
+  };
+
+  const getClientStatusText = (client) => {
+    if (!client) return "";
+
+    if (client.is_accessible && client.is_expiring_soon) {
+      return `⚠️ Suscripción por vencer${client.subscription_end_date ? ` (${client.subscription_end_date})` : ""}`;
+    }
+
+    if (client.is_accessible && client.subscription_status === "active") {
+      return "✅ Suscripción activa";
+    }
+
+    if (client.is_accessible && client.subscription_status === "trial") {
+      return "🟡 Cliente en trial";
+    }
+
+    if (!client.is_accessible && client.subscription_status === "expired") {
+      return `⛔ Suscripción vencida${client.subscription_end_date ? ` (${client.subscription_end_date})` : ""}`;
+    }
+
+    if (!client.is_accessible && client.subscription_status === "suspended") {
+      return "⛔ Suscripción suspendida";
+    }
+
+    if (!client.is_accessible && client.subscription_status === "missing") {
+      return "⛔ Cliente sin suscripción configurada";
+    }
+
+    return `ℹ️ Estado: ${client.subscription_status || "desconocido"}`;
+  };
+
+  const enterApp = (app) => {
+    const app_id = app.app_id;
+    const client = getSelectedClient(app);
+    const client_id = client?.id;
+
+    if (!client_id) {
+      setMsg(`Selecciona un cliente para app_id=${app_id}.`);
+      setMsgType("warning");
+      return;
+    }
+
+    if (!client.is_accessible) {
+      setMsg(`No puedes ingresar a ${app.app} con el cliente "${client.name}" porque su suscripción no está activa.`);
+      setMsgType("warning");
+      return;
+    }
+
+    // FASE 2: usar launch-service
+    window.location.href = `${LAUNCH_BASE_URL}?app_id=${app_id}&client_id=${client_id}`;
+  };
+
+  // =========================
+  // FASE 6B - Admin helpers
+  // =========================
+  const closeAdminModal = (silent = false) => {
+    setAdminModalOpen(false);
+    setAdminTab("users");
+    setAdminClients([]);
+    setAdminSelectedClientId("");
+    setAdminLoadingClients(false);
+    setAdminLoadingData(false);
+    setAdminError("");
+    setAdminUsers([]);
+    setAdminSubscriptions([]);
+    setAdminPermissions([]);
+    setAdminGlobalUsers([]);
+    setAdminGlobalApplications([]);
+    setAdminGlobalClients([]);
+    closeAdminEditor(true);
+
+    if (!silent) {
+      setUserMenuOpen(false);
+    }
+  };
+
+  const openAdminModal = async () => {
+    setUserMenuOpen(false);
+
+    if (!hasAdminScope) {
+      setMsg("No tienes permisos para acceder al módulo de administración.");
+      setMsgType("warning");
+      return;
+    }
+
+    setAdminModalOpen(true);
+    setAdminTab("users");
+    setAdminError("");
+    setAdminUsers([]);
+    setAdminSubscriptions([]);
+    setAdminPermissions([]);
+    setAdminGlobalUsers([]);
+    setAdminGlobalApplications([]);
+    setAdminGlobalClients([]);
+
+    if (isSystemAdmin) {
+      await loadAdminAppsCatalog();
+    }
+
+    await fetchAdminClients();
+  };
+
+  const fetchAdminClients = async () => {
+    setAdminLoadingClients(true);
+    setAdminError("");
+
+    try {
+      const r = await fetch(ADMIN_CLIENTS_API_URL, {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      });
+
+      if (!r.ok) {
+        const t = await r.text();
+        throw new Error(`No se pudieron cargar clientes (${r.status}): ${t}`);
+      }
+
+      const data = await r.json();
+      const safeClients = Array.isArray(data) ? data : [];
+
+      setAdminClients(safeClients);
+
+      if (safeClients.length > 0) {
+        const firstClientId = safeClients[0]?.client_id;
+        setAdminSelectedClientId(firstClientId ? String(firstClientId) : "");
+      } else {
+        setAdminSelectedClientId("");
+      }
+    } catch (e) {
+      setAdminError(String(e));
+      setAdminClients([]);
+      setAdminSelectedClientId("");
+    } finally {
+      setAdminLoadingClients(false);
+    }
+  };
+
+  const fetchAdminTabData = async (tab, clientId) => {
+    const isGlobalTab = isGlobalAdminTab(tab);
+
+    if (!isGlobalTab && !clientId) return;
+
+    setAdminLoadingData(true);
+    setAdminError("");
+
+    // limpia datasets previos visibles para evitar confusión
+    setAdminUsers([]);
+    setAdminSubscriptions([]);
+    setAdminPermissions([]);
+    setAdminGlobalUsers([]);
+    setAdminGlobalApplications([]);
+    setAdminGlobalClients([]);
+
+    let url = "";
+
+    switch (tab) {
+      case "users":
+        url = `${ADMIN_USERS_BY_CLIENT_API_URL}?client_id=${clientId}`;
+        break;
+      case "subscriptions":
+        url = `${ADMIN_SUBSCRIPTIONS_BY_CLIENT_API_URL}?client_id=${clientId}`;
+        break;
+      case "permissions":
+        url = `${ADMIN_PERMISSIONS_BY_CLIENT_API_URL}?client_id=${clientId}`;
+        break;
+      case "global-users":
+        url = ADMIN_GLOBAL_USERS_API_URL;
+        break;
+      case "global-applications":
+        url = ADMIN_GLOBAL_APPLICATIONS_API_URL;
+        break;
+      case "global-clients":
+        url = ADMIN_GLOBAL_CLIENTS_API_URL;
+        break;
+      default:
+        url = `${ADMIN_USERS_BY_CLIENT_API_URL}?client_id=${clientId}`;
+        break;
+    }
+
+    try {
+      const r = await fetch(url, {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      });
+
+      if (!r.ok) {
+        const t = await r.text();
+        throw new Error(`No se pudo cargar ${tab} (${r.status}): ${t}`);
+      }
+
+      const data = await r.json();
+      const safeData = Array.isArray(data) ? data : [];
+
+      if (tab === "users") setAdminUsers(safeData);
+      if (tab === "subscriptions") setAdminSubscriptions(safeData);
+      if (tab === "permissions") setAdminPermissions(safeData);
+      if (tab === "global-users") setAdminGlobalUsers(safeData);
+      if (tab === "global-applications") setAdminGlobalApplications(safeData);
+      if (tab === "global-clients") setAdminGlobalClients(safeData);
+    } catch (e) {
+      setAdminError(String(e));
+    } finally {
+      setAdminLoadingData(false);
+    }
+  };
+
+  const loadAdminAppsCatalog = async () => {
+    try {
+      const r = await fetch(APPS_CATALOG_API_URL, {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      });
+
+      if (!r.ok) {
+        throw new Error("No se pudo cargar el catálogo de aplicaciones.");
+      }
+
+      const data = await r.json();
+      setAdminAppsCatalog(Array.isArray(data) ? data : []);
+    } catch {
+      setAdminAppsCatalog([]);
+    }
+  };
+
+  const resetAdminActionMessages = () => {
+    setAdminActionMsg("");
+    setAdminActionMsgType("info");
+  };
+
+  const closeAdminEditor = (silent = false) => {
+    setAdminEditorOpen(false);
+    setAdminEditorMode("create");
+    setAdminEditorType("");
+    setAdminCreateUserForm({
+      username: "",
+      password: "",
+      email: "",
+      is_system_admin: false,
+    });
+    setAdminCreateClientForm({
+      client_id: "",
+      client_name: "",
+    });
+    setAdminApplicationForm({
+      app_id: "",
+      app_name: "",
+      slug: "",
+      launch_mode: "dynamic_proxy",
+      description: "",
+    });
+    setAdminSubscriptionForm({
+      client_id: adminSelectedClientId ? String(adminSelectedClientId) : "",
+      app_id: "",
+      status: "active",
+      is_enabled: true,
+      start_date: "",
+      end_date: "",
+    });
+    setAdminPermissionForm({
+      permission_id: "",
+      user_id: "",
+      username: "",
+      client_id: adminSelectedClientId ? String(adminSelectedClientId) : "",
+      app_id: "",
+      role: "member",
+    });
+
+    if (!silent) {
+      resetAdminActionMessages();
+    }
+  };
+
+const openAdminEditor = (type, mode = "create", row = null) => {
+  resetAdminActionMessages();
+  setAdminEditorType(type);
+  setAdminEditorMode(mode);
+
+  if (type === "global-user") {
+    if (mode === "edit" && row) {
+      setAdminCreateUserForm({
+        user_id: row.user_id ? String(row.user_id) : "",
+        username: row.username || "",
+        password: "",
+        email: row.email || "",
+        is_system_admin: Boolean(row.is_system_admin),
+      });
+    } else {
+      setAdminCreateUserForm({
+        user_id: "",
+        username: "",
+        password: "",
+        email: "",
+        is_system_admin: false,
+      });
+    }
+  }
+
+  if (type === "global-client") {
+    setAdminCreateClientForm({
+      client_id: mode === "edit" && row?.client_id ? String(row.client_id) : "",
+      client_name: mode === "edit" && row?.client_name ? row.client_name : "",
+    });

@@ -5,9 +5,9 @@ from fastapi import APIRouter, Depends, Request, HTTPException, Header
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from db import get_pos_db, get_control_db, Category, Product, Sale, SaleItem
+from db import get_pos_db, Category, Product, Sale, SaleItem
 from auth import verify_token
-from permissions import resolve_context, validate_permission
+from permissions import resolve_context, validate_permission, get_context_info
 from schemas import (
     CategoryCreate,
     CategoryResponse,
@@ -58,10 +58,19 @@ def get_user_or_redirect(
         return None
 
 
+def _build_logout_response() -> RedirectResponse:
+    response = RedirectResponse(url=LOGIN_FALLBACK_URL, status_code=302)
+    response.delete_cookie("jwt", path="/")
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
 def render_pos_html(
     request: Request,
     user: str,
-    control_db: Session,
+    authorization: str | None,
     x_app_id: int | None,
     x_client_id: int | None,
 ) -> HTMLResponse:
@@ -70,26 +79,12 @@ def render_pos_html(
     if not app_id or not client_id:
         raise HTTPException(status_code=400, detail="Faltan app_id o client_id")
 
-    validate_permission(control_db, user, app_id, client_id)
+    validate_permission(request, user, app_id, client_id, authorization)
 
-    app_info = control_db.execute(
-        text("""
-            SELECT a.name AS app,
-                   c.name AS client_name
-            FROM applications a
-            JOIN permissions s ON a.id = s.app_id
-            JOIN clients c ON c.id = s.client_id
-            JOIN users u ON u.id = s.user_id
-            WHERE a.id = :app_id
-              AND s.client_id = :client_id
-              AND u.username = :username
-            LIMIT 1
-        """),
-        {"app_id": app_id, "client_id": client_id, "username": user},
-    ).fetchone()
+    context = get_context_info(request, app_id, client_id, authorization)
 
-    app_name = app_info.app if app_info else "POS"
-    client_name = app_info.client_name if app_info else "Cliente"
+    app_name = context.get("app_name", "POS")
+    client_name = context.get("client_name", "Cliente")
 
     app_menu_url = APP_MENU_URL
     logout_url = LOGOUT_URL
@@ -118,10 +113,12 @@ def render_pos_html(
     print("[POS] LOGOUT_URL =", logout_url)
     print("[POS] LOGIN_FALLBACK_URL =", login_fallback_url)
     print("[POS] SESSION_CHECK_URL =", session_check_url)
-    print("[POS] HTML placeholders check =>",
+    print(
+        "[POS] HTML placeholders check =>",
         "__APP_BASE_PATH__" in html_content,
         "__APP_MENU_URL__" in html_content,
-        "__LOGOUT_REDIRECT_URL__" in html_content)
+        "__LOGOUT_REDIRECT_URL__" in html_content,
+    )
 
     response = HTMLResponse(content=html_content)
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
@@ -151,7 +148,6 @@ def health(db: Session = Depends(get_pos_db)):
 @router.get("/", response_class=HTMLResponse)
 def root(
     request: Request,
-    control_db: Session = Depends(get_control_db),
     authorization: str | None = Header(default=None),
     x_app_id: int | None = Header(alias="X-App-Id", default=None),
     x_client_id: int | None = Header(alias="X-Client-Id", default=None),
@@ -160,12 +156,12 @@ def root(
     if not user:
         return RedirectResponse(url=LOGIN_FALLBACK_URL, status_code=302)
 
-    return render_pos_html(request, user, control_db, x_app_id, x_client_id)
+    return render_pos_html(request, user, authorization, x_app_id, x_client_id)
+
 
 @router.get("/pos", response_class=HTMLResponse)
 def pos_interface(
     request: Request,
-    control_db: Session = Depends(get_control_db),
     authorization: str | None = Header(default=None),
     x_app_id: int | None = Header(alias="X-App-Id", default=None),
     x_client_id: int | None = Header(alias="X-Client-Id", default=None),
@@ -174,7 +170,7 @@ def pos_interface(
     if not user:
         return RedirectResponse(url=LOGIN_FALLBACK_URL, status_code=302)
 
-    return render_pos_html(request, user, control_db, x_app_id, x_client_id)
+    return render_pos_html(request, user, authorization, x_app_id, x_client_id)
 
 
 # =========================
@@ -182,22 +178,12 @@ def pos_interface(
 # =========================
 @router.post("/logout")
 def logout():
-    response = RedirectResponse(url=LOGIN_FALLBACK_URL, status_code=302)
-    response.delete_cookie("jwt", path="/")
-    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
-    return response
+    return _build_logout_response()
 
 
 @router.post("/pos/logout")
 def logout_pos():
-    response = RedirectResponse(url=LOGIN_FALLBACK_URL, status_code=302)
-    response.delete_cookie("jwt", path="/")
-    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
-    return response
+    return _build_logout_response()
 
 
 # =========================
@@ -246,7 +232,7 @@ def session_check(
 def entry(
     request: Request,
     user: str = Depends(verify_token),
-    control_db: Session = Depends(get_control_db),
+    authorization: str | None = Header(default=None),
     x_app_id: int | None = Header(alias="X-App-Id", default=None),
     x_client_id: int | None = Header(alias="X-Client-Id", default=None),
 ):
@@ -254,7 +240,7 @@ def entry(
     if not app_id or not client_id:
         raise HTTPException(status_code=400, detail="Faltan app_id o client_id")
 
-    validate_permission(control_db, user, app_id, client_id)
+    validate_permission(request, user, app_id, client_id, authorization)
 
     return {"ok": True, "user": user, "app_id": app_id, "client_id": client_id}
 
@@ -267,7 +253,7 @@ def get_categories(
     request: Request,
     user: str = Depends(verify_token),
     pos_db: Session = Depends(get_pos_db),
-    control_db: Session = Depends(get_control_db),
+    authorization: str | None = Header(default=None),
     x_app_id: int | None = Header(alias="X-App-Id", default=None),
     x_client_id: int | None = Header(alias="X-Client-Id", default=None),
 ):
@@ -275,7 +261,7 @@ def get_categories(
     if not app_id or not client_id:
         raise HTTPException(status_code=400, detail="Faltan app_id o client_id")
 
-    validate_permission(control_db, user, app_id, client_id)
+    validate_permission(request, user, app_id, client_id, authorization)
 
     return pos_db.query(Category).filter(Category.is_active == True).all()
 
@@ -286,7 +272,7 @@ def create_category(
     request: Request,
     user: str = Depends(verify_token),
     pos_db: Session = Depends(get_pos_db),
-    control_db: Session = Depends(get_control_db),
+    authorization: str | None = Header(default=None),
     x_app_id: int | None = Header(alias="X-App-Id", default=None),
     x_client_id: int | None = Header(alias="X-Client-Id", default=None),
 ):
@@ -294,7 +280,7 @@ def create_category(
     if not app_id or not client_id:
         raise HTTPException(status_code=400, detail="Faltan app_id o client_id")
 
-    validate_permission(control_db, user, app_id, client_id)
+    validate_permission(request, user, app_id, client_id, authorization)
 
     category = Category(name=data.name)
     pos_db.add(category)
@@ -311,7 +297,7 @@ def get_products(
     request: Request,
     user: str = Depends(verify_token),
     pos_db: Session = Depends(get_pos_db),
-    control_db: Session = Depends(get_control_db),
+    authorization: str | None = Header(default=None),
     x_app_id: int | None = Header(alias="X-App-Id", default=None),
     x_client_id: int | None = Header(alias="X-Client-Id", default=None),
 ):
@@ -319,7 +305,7 @@ def get_products(
     if not app_id or not client_id:
         raise HTTPException(status_code=400, detail="Faltan app_id o client_id")
 
-    validate_permission(control_db, user, app_id, client_id)
+    validate_permission(request, user, app_id, client_id, authorization)
 
     rows = (
         pos_db.query(Product, Category.name.label("category_name"))
@@ -347,13 +333,14 @@ def get_products(
         for product, category_name in rows
     ]
 
+
 @router.post("/api/products", response_model=ProductResponse)
 def create_product(
     data: ProductCreate,
     request: Request,
     user: str = Depends(verify_token),
     pos_db: Session = Depends(get_pos_db),
-    control_db: Session = Depends(get_control_db),
+    authorization: str | None = Header(default=None),
     x_app_id: int | None = Header(alias="X-App-Id", default=None),
     x_client_id: int | None = Header(alias="X-Client-Id", default=None),
 ):
@@ -361,7 +348,7 @@ def create_product(
     if not app_id or not client_id:
         raise HTTPException(status_code=400, detail="Faltan app_id o client_id")
 
-    validate_permission(control_db, user, app_id, client_id)
+    validate_permission(request, user, app_id, client_id, authorization)
 
     category = None
     if data.category_id is not None:
@@ -395,7 +382,7 @@ def create_sale(
     request: Request,
     user: str = Depends(verify_token),
     pos_db: Session = Depends(get_pos_db),
-    control_db: Session = Depends(get_control_db),
+    authorization: str | None = Header(default=None),
     x_app_id: int | None = Header(alias="X-App-Id", default=None),
     x_client_id: int | None = Header(alias="X-Client-Id", default=None),
 ):
@@ -403,7 +390,7 @@ def create_sale(
     if not app_id or not client_id:
         raise HTTPException(status_code=400, detail="Faltan app_id o client_id")
 
-    validate_permission(control_db, user, app_id, client_id)
+    validate_permission(request, user, app_id, client_id, authorization)
 
     if not data.items:
         raise HTTPException(status_code=400, detail="La venta debe contener al menos un producto")
@@ -444,7 +431,7 @@ def create_sale(
             payment_method=data.payment_method,
             notes=data.notes,
         )
-        
+
         pos_db.add(sale)
         pos_db.flush()
 

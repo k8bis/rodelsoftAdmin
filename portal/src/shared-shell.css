@@ -1,7 +1,6 @@
 /* =========================================================
-   RodelSoft Platform - Shared UI Shell v1
-   Archivo fuente oficial del shell visual reutilizable
-   Basado en clases reales ya usadas por POS y Notes External
+   RodelSoft Portal - Shared UI Shell v1 (React mirror)
+   Equivalencia visual oficial respecto a shared/shared-shell.css
    ========================================================= */
 
 :root {
@@ -24,33 +23,6 @@
   --rs-shadow-sm: 0 4px 10px rgba(0, 0, 0, 0.12);
   --rs-shadow-md: 0 8px 24px rgba(0, 0, 0, 0.08);
   --rs-shadow-lg: 0 14px 28px rgba(0, 0, 0, 0.14);
-
-  --rs-font: Arial, sans-serif;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-html, body {
-  margin: 0;
-  padding: 0;
-  font-family: var(--rs-font);
-  background: var(--rs-bg);
-  color: var(--rs-text);
-}
-
-/* =========================
-   App Shell base
-   ========================= */
-.rs-app-shell {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
-
-.rs-main {
-  flex: 1;
 }
 
 /* =========================
@@ -74,23 +46,8 @@ html, body {
 .rs-shell-left {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 16px;
   min-width: 0;
-}
-
-.rs-shell-logo-box {
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
-  background: #ffffff;
-  color: var(--rs-primary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 800;
-  font-size: 0.95rem;
-  box-shadow: var(--rs-shadow-sm);
-  flex-shrink: 0;
 }
 
 .rs-shell-brand {
@@ -100,14 +57,17 @@ html, body {
 }
 
 .rs-shell-title {
-  font-size: 1.1rem;
+  margin: 0;
+  font-size: 24px;
   font-weight: 700;
+  letter-spacing: 0.3px;
   line-height: 1.2;
   color: #fff;
 }
 
 .rs-shell-subtitle {
-  font-size: 0.85rem;
+  margin: 4px 0 0 0;
+  font-size: 13px;
   opacity: 0.9;
   line-height: 1.2;
   color: #fff;
@@ -119,6 +79,13 @@ html, body {
   gap: 10px;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.rs-shell-logo {
+  height: 50px;
+  width: auto;
+  display: block;
+  flex-shrink: 0;
 }
 
 /* =========================
@@ -156,15 +123,11 @@ html, body {
   border-radius: 12px;
   box-shadow: var(--rs-shadow-lg);
   padding: 8px;
-  z-index: 50;
-  display: none;
-}
-
-.rs-user-dropdown.show {
-  display: block;
+  z-index: 100;
 }
 
 .rs-user-dropdown-item {
+  display: block;
   width: 100%;
   text-align: left;
   background: transparent;
@@ -172,86 +135,42 @@ html, body {
   border-radius: 10px;
   padding: 10px 12px;
   font-size: 14px;
+  line-height: 1.2;
   color: var(--rs-primary);
   cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .rs-user-dropdown-item:hover {
   background: #eef4ff;
+  color: #0b4ea2;
 }
 
 .rs-user-dropdown-item-danger {
   color: var(--rs-danger);
+  font-weight: 600;
 }
 
 .rs-user-dropdown-item-danger:hover {
-  background: #fef2f2;
+  background: #fef2f2 !important;
+  color: #b91c1c !important;
 }
 
 /* =========================
    Shared Footer v1
    ========================= */
-.rs-shell-footer {
+.app-footer {
   border-top: 1px solid var(--rs-border);
   background: #fff;
   margin-top: auto;
-}
-
-.rs-shell-footer-inner {
-  max-width: 1440px;
-  margin: 0 auto;
-  padding: 14px 20px;
-  font-size: 13px;
   color: var(--rs-text-muted);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
+  text-align: center;
+  padding: 14px 20px;
 }
 
-/* =========================
-   Shared content helpers
-   ========================= */
-.rs-page-container {
-  width: 100%;
-  max-width: 1440px;
-  margin: 0 auto;
-  padding: 20px;
-}
-
-.rs-card {
-  background: var(--rs-surface);
-  border: 1px solid var(--rs-border);
-  border-radius: 16px;
-  box-shadow: var(--rs-shadow-md);
-}
-
-.rs-btn {
-  border: none;
-  border-radius: 10px;
-  padding: 10px 14px;
-  cursor: pointer;
-  font-weight: 700;
-}
-
-.rs-btn-primary {
-  background: var(--rs-primary);
-  color: #fff;
-}
-
-.rs-btn-primary:hover {
-  background: var(--rs-primary-hover);
-}
-
-.rs-btn-secondary {
-  background: #ffffff;
-  color: var(--rs-primary);
-  border: 1px solid var(--rs-border);
-}
-
-.rs-btn-secondary:hover {
-  background: #eef4ff;
+.app-footer-text {
+  margin: 0;
+  font-size: 13px;
 }
 
 @media (max-width: 980px) {
@@ -262,9 +181,4 @@ html, body {
   .rs-shell-right {
     justify-content: flex-start;
   }
-
-  .rs-shell-footer-inner {
-    justify-content: flex-start;
-  }
 }
-
