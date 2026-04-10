@@ -192,7 +192,7 @@ export default function AdminModal({
           </div>
         </div>
 
-        <div className="rs-admin-actions">
+        <div className="rs-admin-actions-toolbar">
           {adminTab === "global-users" && isSystemAdmin && (
             <button
               type="button"
@@ -540,7 +540,9 @@ export default function AdminModal({
                                     user_id: row.user_id || "",
                                     username: row.username || "",
                                     client_id: row.client_id || "",
+                                    client_name: row.client_name || "",
                                     app_id: row.app_id || "",
+                                    app_name: row.app_name || "",
                                     role: row.role || "member",
                                   })
                                 }

@@ -534,7 +534,20 @@ export default function AdminEditorModal({
                     <input
                       className="input"
                       type="text"
-                      value={adminPermissionForm.app_id || ""}
+                      value={
+                        adminPermissionForm.app_name ||
+                        adminAppsCatalog.find(
+                          (app) =>
+                            String(app.app_id ?? app.id ?? "") ===
+                            String(adminPermissionForm.app_id || "")
+                        )?.app_name ||
+                        adminAppsCatalog.find(
+                          (app) =>
+                            String(app.app_id ?? app.id ?? "") ===
+                            String(adminPermissionForm.app_id || "")
+                        )?.name ||
+                        ""
+                      }
                       disabled
                     />
                   </div>
@@ -598,12 +611,22 @@ export default function AdminEditorModal({
                     <select
                       className="select"
                       value={adminPermissionForm.app_id || ""}
-                      onChange={(e) =>
+                      onChange={(e) => {
+                        const selectedId = e.target.value;
+                        const selectedApp =
+                          adminPermissionApps.find(
+                            (app) => String(app.app_id ?? app.id ?? "") === String(selectedId)
+                          ) || null;
+
                         setAdminPermissionForm((prev) => ({
                           ...prev,
-                          app_id: e.target.value,
-                        }))
-                      }
+                          app_id: selectedId,
+                          app_name:
+                            selectedApp?.app_name ||
+                            selectedApp?.name ||
+                            "",
+                        }));
+                      }}
                     >
                       <option value="">
                         {adminPermissionApps.length
@@ -639,7 +662,6 @@ export default function AdminEditorModal({
                 >
                   <option value="member">member</option>
                   <option value="app_client_admin">app_client_admin</option>
-                  <option value="app_super_admin">app_super_admin</option>
                 </select>
               </div>
             </div>

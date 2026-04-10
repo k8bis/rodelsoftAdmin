@@ -74,7 +74,6 @@ def internal_admin_clients(
         for r in rows
     ]
 
-
 @router.get("/internal/admin/users-by-client", response_model=list[InternalAdminUserByClientItem])
 def internal_admin_users_by_client(
     client_id: int = Query(..., gt=0),
@@ -85,7 +84,7 @@ def internal_admin_users_by_client(
 
     if is_system_admin(db, user):
         rows = db.execute(text("""
-            SELECT DISTINCT
+            SELECT
                 u.id AS user_id,
                 u.username AS username,
                 u.email AS email,
@@ -100,20 +99,17 @@ def internal_admin_users_by_client(
         }).mappings().all()
     else:
         rows = db.execute(text("""
-            SELECT DISTINCT
-                u_target.id AS user_id,
-                u_target.username AS username,
-                u_target.email AS email,
+            SELECT
+                u.id AS user_id,
+                u.username AS username,
+                u.email AS email,
                 ucm.status AS membership_status
-            FROM permissions p_target
-            JOIN users u_target
-              ON u_target.id = p_target.user_id
-            LEFT JOIN user_client_memberships ucm
-              ON ucm.user_id = p_target.user_id
-             AND ucm.client_id = p_target.client_id
-            WHERE p_target.client_id = :client_id
-              AND p_target.app_id IN (
-                  SELECT p_admin.app_id
+            FROM user_client_memberships ucm
+            JOIN users u
+              ON u.id = ucm.user_id
+            WHERE ucm.client_id = :client_id
+              AND EXISTS (
+                  SELECT 1
                   FROM permissions p_admin
                   JOIN users u_admin
                     ON u_admin.id = p_admin.user_id
@@ -121,7 +117,7 @@ def internal_admin_users_by_client(
                     AND p_admin.client_id = :client_id
                     AND p_admin.role = 'app_client_admin'
               )
-            ORDER BY u_target.username
+            ORDER BY u.username
         """), {
             "client_id": client_id,
             "username": user,
@@ -137,34 +133,67 @@ def internal_admin_users_by_client(
         for r in rows
     ]
 
-
 @router.get("/internal/admin/subscriptions-by-client", response_model=list[InternalAdminSubscriptionByClientItem])
 def internal_admin_subscriptions_by_client(
     client_id: int = Query(..., gt=0),
-    user: str = Depends(require_system_admin),
+    user: str = Depends(require_admin_module_access),
     db: Session = Depends(get_db),
 ):
-    rows = db.execute(text("""
-        SELECT
-            s.id AS subscription_id,
-            s.app_id AS app_id,
-            a.name AS app_name,
-            s.status AS status,
-            s.is_enabled AS is_enabled,
-            s.start_date AS start_date,
-            s.end_date AS end_date
-        FROM client_app_subscriptions s
-        JOIN applications a
-          ON a.id = s.app_id
-        WHERE s.client_id = :client_id
-        ORDER BY a.name
-    """), {
-        "client_id": client_id
-    }).mappings().all()
+    require_admin_scope_for_client(client_id, user, db)
+
+    if is_system_admin(db, user):
+        rows = db.execute(text("""
+            SELECT
+                s.id AS subscription_id,
+                s.client_id AS client_id,
+                s.app_id AS app_id,
+                a.name AS app_name,
+                s.status AS status,
+                s.is_enabled AS is_enabled,
+                s.start_date AS start_date,
+                s.end_date AS end_date
+            FROM client_app_subscriptions s
+            JOIN applications a
+              ON a.id = s.app_id
+            WHERE s.client_id = :client_id
+            ORDER BY a.name
+        """), {
+            "client_id": client_id
+        }).mappings().all()
+    else:
+        rows = db.execute(text("""
+            SELECT
+                s.id AS subscription_id,
+                s.client_id AS client_id,
+                s.app_id AS app_id,
+                a.name AS app_name,
+                s.status AS status,
+                s.is_enabled AS is_enabled,
+                s.start_date AS start_date,
+                s.end_date AS end_date
+            FROM client_app_subscriptions s
+            JOIN applications a
+              ON a.id = s.app_id
+            WHERE s.client_id = :client_id
+             /* AND s.app_id IN (
+                  SELECT p_admin.app_id
+                  FROM permissions p_admin
+                  JOIN users u_admin
+                    ON u_admin.id = p_admin.user_id
+                  WHERE u_admin.username = :username
+                    AND p_admin.client_id = :client_id
+                    AND p_admin.role = 'app_client_admin'
+              )*/
+            ORDER BY a.name
+        """), {
+            "client_id": client_id,
+            "username": user,
+        }).mappings().all()
 
     return [
         {
             "subscription_id": r["subscription_id"],
+            "client_id": r["client_id"],
             "app_id": r["app_id"],
             "app_name": r["app_name"],
             "status": r["status"],
@@ -174,6 +203,7 @@ def internal_admin_subscriptions_by_client(
         }
         for r in rows
     ]
+
 
 
 @router.get("/internal/admin/permissions-by-client", response_model=list[InternalAdminPermissionByClientItem])

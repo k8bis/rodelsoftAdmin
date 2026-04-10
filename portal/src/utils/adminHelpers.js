@@ -153,7 +153,9 @@ export function getDefaultAdminPermissionForm(clientId = "") {
     user_id: "",
     username: "",
     client_id: clientId ? String(clientId) : "",
+    client_name: "",
     app_id: "",
+    app_name: "",
     role: "member",
   };
 }

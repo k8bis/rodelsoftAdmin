@@ -285,28 +285,51 @@ export default function App() {
 
     try {
       if (tab === "permissions") {
-        const [permissionsResult, usersResult, subscriptionsResult] = await Promise.all([
+        const [permissionsResult, usersResult, subscriptionsResult] = await Promise.allSettled([
           fetchAdminTabDataRequest("permissions", clientId),
           fetchAdminTabDataRequest("users", clientId),
           fetchAdminTabDataRequest("subscriptions", clientId),
         ]);
 
-        if (Object.prototype.hasOwnProperty.call(permissionsResult, "adminPermissions")) {
-          setAdminPermissions(permissionsResult.adminPermissions);
+        if (
+          permissionsResult.status === "fulfilled" &&
+          Object.prototype.hasOwnProperty.call(permissionsResult.value, "adminPermissions")
+        ) {
+          setAdminPermissions(permissionsResult.value.adminPermissions);
         } else {
           setAdminPermissions([]);
         }
 
-        if (Object.prototype.hasOwnProperty.call(usersResult, "adminUsers")) {
-          setAdminUsers(usersResult.adminUsers);
+        if (
+          usersResult.status === "fulfilled" &&
+          Object.prototype.hasOwnProperty.call(usersResult.value, "adminUsers")
+        ) {
+          setAdminUsers(usersResult.value.adminUsers);
         } else {
           setAdminUsers([]);
         }
 
-        if (Object.prototype.hasOwnProperty.call(subscriptionsResult, "adminSubscriptions")) {
-          setAdminSubscriptions(subscriptionsResult.adminSubscriptions);
+        if (
+          subscriptionsResult.status === "fulfilled" &&
+          Object.prototype.hasOwnProperty.call(subscriptionsResult.value, "adminSubscriptions")
+        ) {
+          setAdminSubscriptions(subscriptionsResult.value.adminSubscriptions);
         } else {
           setAdminSubscriptions([]);
+        }
+
+        if (permissionsResult.status === "rejected") {
+          setAdminActionMsg(extractAdminErrorMessage(permissionsResult.reason));
+          setAdminActionMsgType("error");
+        } else if (usersResult.status === "rejected") {
+          setAdminActionMsg(extractAdminErrorMessage(usersResult.reason));
+          setAdminActionMsgType("error");
+        } else if (subscriptionsResult.status === "rejected") {
+          // No bloquear la pestaña de permisos si solo falla el dataset auxiliar de suscripciones
+          setAdminActionMsg(
+            "No fue posible cargar el catálogo auxiliar de suscripciones para permisos."
+          );
+          setAdminActionMsgType("warning");
         }
 
         return;
@@ -398,8 +421,10 @@ export default function App() {
         if (needsUsers) setAdminUsers(nextUsers);
         if (needsSubscriptions) setAdminSubscriptions(nextSubscriptions);
       } catch (e) {
-        setAdminActionMsg(extractAdminErrorMessage(e));
-        setAdminActionMsgType("error");
+        setAdminActionMsg(
+          "No fue posible cargar todos los catálogos auxiliares para el alta de permisos."
+        );
+        setAdminActionMsgType("warning");
       }
     }
 
@@ -414,7 +439,12 @@ export default function App() {
     resetAdminActionMessages();
 
     await fetchAdminClients();
-    await loadAdminAppsCatalog();
+
+    if (isSystemAdmin) {
+      await loadAdminAppsCatalog();
+    } else {
+      setAdminAppsCatalog([]);
+    }
   };
 
   useEffect(() => {
@@ -537,13 +567,13 @@ export default function App() {
     if (type === "permission") {
       if (mode === "edit" && row) {
         setAdminPermissionForm({
-          permission_id: row.permission_id ? String(row.permission_id) : "",
-          user_id: row.user_id ? String(row.user_id) : "",
+          permission_id: row.permission_id || "",
+          user_id: row.user_id || "",
           username: row.username || "",
-          client_id: row.client_id
-            ? String(row.client_id)
-            : String(adminSelectedClientId || ""),
-          app_id: row.app_id ? String(row.app_id) : "",
+          client_id: row.client_id || "",
+          client_name: row.client_name || "",
+          app_id: row.app_id || "",
+          app_name: row.app_name || "",
           role: row.role || "member",
         });
 

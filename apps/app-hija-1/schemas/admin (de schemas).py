@@ -17,6 +17,7 @@ class InternalAdminUserByClientItem(BaseModel):
 
 class InternalAdminSubscriptionByClientItem(BaseModel):
     subscription_id: int
+    client_id: int
     app_id: int
     app_name: str
     status: str | None = None
